@@ -7,18 +7,18 @@ import { cn } from "@/client/cn";
 
 export function NavLinks() {
   const pathname = usePathname();
-  const { snapshot } = useDemo();
+  const { snapshot, selectedPersonId } = useDemo();
   const openCount =
     snapshot?.alerts.filter((a) => a.status === "open" || a.status === "acknowledged").length ?? 0;
-  const subjectId = snapshot?.subject.id;
+  const subjectId = snapshot?.subject.id ?? selectedPersonId;
 
   const NAV = [
-    { href: "/overview", label: "Overview" },
-    { href: "/alerts", label: "Alerts" },
-    { href: "/demo-studio", label: "Demo I/O" },
-    { href: subjectId ? `/people/${subjectId}` : "/overview", label: "Person details" },
-    { href: "/care-network", label: "Care Network" },
-    { href: "/settings", label: "Settings" },
+    { id: "overview", href: "/overview", label: "Overview" },
+    { id: "alerts", href: "/alerts", label: "Alerts" },
+    { id: "demo", href: "/demo-studio", label: "Demo I/O" },
+    { id: "person", href: `/people/${subjectId}`, label: "Person details" },
+    { id: "care", href: "/care-network", label: "Care Network" },
+    { id: "settings", href: "/settings", label: "Settings" },
   ];
 
   return (
@@ -31,7 +31,7 @@ export function NavLinks() {
           (base !== n.href && (pathname === base || pathname.startsWith(base + "/")));
         return (
           <Link
-            key={n.href}
+            key={n.id}
             href={n.href}
             className={cn(
               "relative rounded-lg px-3 py-1.5 font-medium transition-colors",

@@ -105,8 +105,42 @@ export function parseSensor(text: string, name: string) {
   let raw: unknown;
   if (/\.json$/i.test(name)) {
     raw = JSON.parse(text);
-    if (!Array.isArray(raw) && raw && typeof raw === "object")
-      raw = (raw as { observations?: unknown }).observations;
+    if (!Array.isArray(raw) && raw && typeof raw === "object") {
+      const document = raw as Record<string, unknown>;
+      if (document.document_type === "liveprevent_subject_video_observation") {
+        const at = document.generated_at;
+        if (typeof at !== "string" || Number.isNaN(Date.parse(at)))
+          throw new Error("This observation document needs a valid generated_at timestamp.");
+        const devices = Array.isArray(document.devices) ? document.devices : [];
+        const watch = devices.find(
+          (device) => device && typeof device === "object" &&
+            (device as Record<string, unknown>).device_type === "smartwatch",
+        ) as Record<string, unknown> | undefined;
+        const trend = document.trend_summary;
+        const today = trend && typeof trend === "object"
+          ? (trend as Record<string, unknown>).today : undefined;
+        const steps = today && typeof today === "object"
+          ? (today as Record<string, unknown>).activity_steps : undefined;
+        const imported = [
+          ...(watch?.status === "online" || watch?.status === "offline"
+            ? [{ kind: "device_online", value: watch.status === "online", at, source: "sample_sensor" }]
+            : []),
+          ...(watch?.wear_state === "worn" || watch?.wear_state === "not_worn"
+            ? [{ kind: "worn", value: watch.wear_state === "worn", at, source: "sample_sensor" }]
+            : []),
+          ...(typeof steps === "number" && Number.isFinite(steps)
+            ? [{ kind: "activity_steps", value: steps, at, source: "sample_sensor" }]
+            : []),
+        ];
+        if (!imported.length)
+          throw new Error("This observation document has no supported smartwatch status, wear state, or activity steps.");
+        raw = imported;
+      } else if ("observations" in document) {
+        raw = document.observations;
+      } else {
+        throw new Error("JSON must contain an observations array or a supported LivePrevent observation document.");
+      }
+    }
   } else {
     const rows: string[][] = [];
     let row: string[] = [],
@@ -173,8 +207,9 @@ export function parseSensor(text: string, name: string) {
     throw new Error(
       result.error.issues
         .map(
-          (i) =>
-            `Row ${Number(i.path[0]) + 1}: ${i.path.slice(1).join(".")} ${i.message}`,
+          (i) => i.path.length
+            ? `Row ${Number(i.path[0]) + 1}: ${i.path.slice(1).join(".")} ${i.message}`
+            : i.message,
         )
         .slice(0, 5)
         .join("; "),
@@ -264,9 +299,13 @@ export async function upload(req: Request, id: string, token: string) {
     if (size !== m.size)
       throw new Error("Upload incomplete. Please select the file again.");
     const bytes = Buffer.concat(chunks);
-    if (m.kind === "sensor")
-      m.observations = parseSensor(bytes.toString("utf8"), m.name);
-    else m.durationSeconds = mp4Duration(bytes);
+    if (m.kind === "sensor") {
+      const text = bytes.toString("utf8");
+      m.observations = parseSensor(text, m.name);
+      if (/\.json$/i.test(m.name) &&
+          JSON.parse(text)?.document_type === "liveprevent_subject_video_observation")
+        m.importNote = "Imported smartwatch status, wear state, and activity steps where available. Video descriptions and personal details were not imported as sensor observations.";
+    } else m.durationSeconds = mp4Duration(bytes);
     mkdirSync(path.join(dataRoot, "uploads"), { recursive: true });
     writeFileSync(mediaPath(id), bytes, { mode: 0o600 });
     m.status = "ready";

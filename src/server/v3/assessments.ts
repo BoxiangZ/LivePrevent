@@ -8,7 +8,7 @@ import {
 } from "@/shared/contracts/assessment";
 import { all, get, put } from "./repository";
 import { mediaFor } from "./media";
-import { analyzeVideo, visualModel } from "./kimi";
+import { analyzeVideo, summarizeReportedContext, visualModel } from "./kimi";
 import { ApiError } from "./auth";
 import { getStore, saveStore, appendAudit, nextId } from "@/server/store";
 import { buildStructuredFacts } from "@/server/jev/facts";
@@ -128,9 +128,10 @@ export function evaluate(
   observations: Observation[],
   video: Finding["video"],
   baseline?: { heartRate: number | null; steps: number | null },
+  reportedSummary?: string | null,
 ): Pick<
   Finding,
-  "level" | "displayStatus" | "headline" | "recommendedAction" | "limitations"
+  "level" | "displayStatus" | "headline" | "recommendedAction" | "limitations" | "findings"
 > & { ruleId: string } {
   const limitations: string[] = [];
   const relevant = observations.filter(
@@ -142,130 +143,193 @@ export function evaluate(
     limitations.push(
       "Some observations were outside the selected time window or camera coverage and were excluded.",
     );
-  const values = (kind: string) =>
+  const values = (kind: Observation["kind"]) =>
     relevant.filter((o) => o.kind === kind).map((o) => o.value);
-  const yes = (kind: string) => values(kind).includes(true);
-  const number = (kind: string) =>
+  const yes = (kind: Observation["kind"]) => values(kind).includes(true);
+  const no = (kind: Observation["kind"]) => values(kind).includes(false);
+  const number = (kind: Observation["kind"]) =>
     values(kind).find((v) => typeof v === "number") as number | undefined;
-  const conflicting = relevant.some((o) =>
-    values(o.kind).some(
-      (v) =>
-        typeof v === "boolean" && typeof o.value === "boolean" && v !== o.value,
-    ),
-  );
-  const unsupported =
-    relevant.length === 0 || relevant.every((o) => o.kind === "note");
-  let level: RiskLevel | null = null,
-    ruleId = "insufficient_evidence";
-  if (conflicting)
-    limitations.push(
-      "Observations conflict. Confirm the person's condition before relying on this assessment.",
-    );
-  if (video?.uncertain)
-    limitations.push("The video is unclear and cannot confirm an event.");
-  if (!unsupported && !conflicting) {
-    if (
-      input.scenario === "possible_fall" &&
-      (yes("impact") ||
-        yes("fall_posture") ||
-        (!video?.uncertain &&
-          video?.evidence.some(
-            (e) => e.kind === "fall_posture" && e.confidence === "high",
-          )))
-    ) {
-      level = yes("recovery") ? "watch" : "important";
-      ruleId = yes("recovery")
-        ? "observed_recovery"
-        : "possible_fall_needs_check";
-      limitations.push(
-        "A historical upload cannot establish whether recovery occurred after recording. No automatic critical escalation is inferred from the end of this clip.",
-      );
-    } else if (
-      input.scenario === "prolonged_inactivity" &&
-      number("inactivity_minutes") !== undefined
-    ) {
-      if (
-        yes("worn") &&
-        !yes("sleeping") &&
-        !values("device_online").includes(false)
-      ) {
-        level = number("inactivity_minutes")! >= 120 ? "important" : "watch";
-        ruleId = "sample_inactivity_review";
-      } else
-        limitations.push(
-          "Inactivity needs wearable, sleep and device context.",
-        );
-    } else if (
-      input.scenario === "heart_rate_deviation" &&
-      number("heart_rate") !== undefined &&
-      baseline?.heartRate &&
-      yes("worn")
-    ) {
-      const change =
-        Math.abs(number("heart_rate")! - baseline.heartRate) /
-        baseline.heartRate;
-      level = change >= 0.25 ? "important" : change >= 0.1 ? "watch" : "stable";
-      ruleId = "sample_heart_rate_baseline";
-      limitations.push(
-        "Heart rate differences have many causes. This comparison is not a medical interpretation.",
-      );
-    } else if (
-      input.scenario === "activity_drop" &&
-      number("activity_steps") !== undefined &&
-      baseline?.steps &&
-      yes("worn")
-    ) {
-      const drop = 1 - number("activity_steps")! / baseline.steps;
-      level = drop >= 0.45 ? "important" : drop >= 0.2 ? "watch" : "stable";
-      ruleId = "sample_daily_activity_baseline";
-      limitations.push(
-        "The step total must cover a full day for this baseline comparison.",
-      );
-    } else if (
-      input.scenario === "device_data_gap" &&
-      values("device_online").includes(false)
-    ) {
-      level = "watch";
-      ruleId = "device_gap";
-    } else if (
-      input.scenario === "general_check" &&
-      yes("device_online") &&
-      yes("worn") &&
-      !yes("impact") &&
-      !yes("fall_posture")
-    ) {
-      level = "stable";
-      ruleId = "no_concerning_observation";
-    } else {
-      limitations.push(
-        "These observations are not sufficient for this assessment type. Review the recorded values with the person's usual context.",
-      );
-    }
+  const evidence = (kind: Observation["kind"]) =>
+    relevant
+      .filter((o) => o.kind === kind)
+      .map((o) => `${o.source === "sample_manual" ? "Reported" : "Sensor"} ${kind.replaceAll("_", " ")}: ${String(o.value)} at ${o.at}`);
+  const videoEvidence = (kind: "fall_posture" | "recovery" | "movement") =>
+    video?.uncertain || !input.videoObservedAt
+      ? []
+      : (video?.evidence ?? [])
+          .filter((e) =>
+            e.kind === kind &&
+            e.confidence !== "low" &&
+            Math.abs(Date.parse(input.videoObservedAt!) + e.atSeconds * 1000 - Date.parse(input.observedAt)) <= 5 * 60_000,
+          )
+          .map((e) => `Video at ${e.atSeconds}s: ${e.description} (${e.confidence} confidence)`);
+  type Item = NonNullable<Finding["findings"]>[number];
+  const findings: Item[] = [];
+  const add = (item: Item) => findings.push(item);
+  const conflict = (kind: Observation["kind"]) => yes(kind) && no(kind);
+  const fallSignals = [...evidence("impact"), ...evidence("fall_posture"), ...videoEvidence("fall_posture")];
+  if (conflict("impact") || conflict("fall_posture") || conflict("recovery")) {
+    add({
+      category: "possible_fall", status: "unknown",
+      summary: "Reports about a possible impact, posture, or recovery conflict.",
+      supportingEvidence: fallSignals, conflictingEvidence: [...evidence("impact"), ...evidence("fall_posture"), ...evidence("recovery")],
+      limitations: ["Confirm which observation is accurate before relying on a fall assessment."],
+      recommendedAction: "Contact the person and check the observation times and sources.",
+      ruleId: "fall_conflicting_evidence", alertRecommended: false,
+    });
+  } else if (yes("impact") || yes("fall_posture") || videoEvidence("fall_posture").some((e) => e.includes("high confidence"))) {
+    const recovered = yes("recovery") || videoEvidence("recovery").length > 0;
+    add({
+      category: "possible_fall", status: recovered ? "watch" : "important",
+      summary: recovered
+        ? "A possible fall signal was followed by reported or visible recovery movement."
+        : "A possible impact or fall posture needs a prompt check-in; recovery has not been confirmed.",
+      supportingEvidence: [...fallSignals, ...(recovered ? [...evidence("recovery"), ...videoEvidence("recovery")] : [])],
+      conflictingEvidence: [], limitations: ["A historical clip cannot establish the person's condition after recording."],
+      recommendedAction: "Contact the person to confirm their current condition.",
+      ruleId: recovered ? "observed_recovery" : "possible_fall_needs_check",
+      alertRecommended: true,
+    });
   }
+  const inactive = number("inactivity_minutes");
+  if (inactive !== undefined) {
+    const moving = videoEvidence("movement");
+    const context = yes("worn") && !yes("sleeping") && !no("device_online");
+    const conflicted = moving.length > 0 || conflict("worn") || conflict("sleeping");
+    const status = conflicted || !context || inactive < 30
+      ? "unknown" : inactive >= 120 ? "important" : "watch";
+    add({
+      category: "prolonged_inactivity", status,
+      summary: conflicted
+        ? "Reported inactivity conflicts with visible movement or device context."
+        : !context ? "Inactivity was reported, but wearing, sleep, or device context is incomplete."
+        : inactive < 30 ? "A short inactive interval alone does not establish prolonged inactivity."
+        : `${inactive} minutes of inactivity warrants review in the supplied context.`,
+      supportingEvidence: evidence("inactivity_minutes"),
+      conflictingEvidence: moving,
+      limitations: status === "unknown" ? ["The available evidence cannot confirm prolonged inactivity."] : [],
+      recommendedAction: conflicted || !context
+        ? "Check the observation time, device status, and the person's current condition."
+        : "Contact the person to check their current activity and wellbeing.",
+      ruleId: conflicted ? "inactivity_video_conflict" : status === "unknown" ? "inactivity_context_missing" : "sample_inactivity_review",
+      alertRecommended: status === "important",
+    });
+  }
+  const heartRate = number("heart_rate");
+  if (heartRate !== undefined) {
+    const valid = yes("worn") && !conflict("worn") && !!baseline?.heartRate;
+    const change = valid ? Math.abs(heartRate - baseline!.heartRate!) / baseline!.heartRate! : null;
+    const status = change === null ? "unknown" : change >= 0.25 ? "important" : change >= 0.1 ? "watch" : "stable";
+    add({
+      category: "heart_rate_deviation", status,
+      summary: change === null
+        ? "A heart rate was supplied, but a learned personal baseline or confirmed watch wearing is unavailable."
+        : `The supplied heart rate differs from the learned personal baseline by ${Math.round(change * 100)}%.`,
+      supportingEvidence: [...evidence("heart_rate"), ...evidence("worn"), ...(change === null ? [] : [`Learned resting heart rate baseline: ${baseline!.heartRate} bpm`])],
+      conflictingEvidence: [], limitations: ["A heart rate difference is not a medical diagnosis."],
+      recommendedAction: status === "important" ? "Contact the person and consider professional advice if they feel unwell." : "Review the reading and the person's usual context.",
+      ruleId: change === null ? "heart_rate_baseline_missing" : "sample_heart_rate_baseline",
+      alertRecommended: status === "important",
+    });
+  }
+  const steps = number("activity_steps");
+  if (steps !== undefined) {
+    const valid = yes("worn") && !conflict("worn") && !!baseline?.steps;
+    const drop = valid ? 1 - steps / baseline!.steps! : null;
+    const status = drop === null ? "unknown" : drop >= 0.45 ? "important" : drop >= 0.2 ? "watch" : "stable";
+    add({
+      category: "activity_drop", status,
+      summary: drop === null
+        ? "Daily steps were supplied, but a learned personal baseline or confirmed watch wearing is unavailable."
+        : `Daily steps are ${Math.round(Math.max(0, drop) * 100)}% below the learned personal baseline.`,
+      supportingEvidence: [...evidence("activity_steps"), ...evidence("worn"), ...(drop === null ? [] : [`Learned daily steps baseline: ${baseline!.steps}`])],
+      conflictingEvidence: [], limitations: ["The step total must cover a full day for this comparison."],
+      recommendedAction: status === "important" ? "Contact the person and review the activity change." : "Check the daily total and recent activity.",
+      ruleId: drop === null ? "activity_baseline_missing" : "sample_daily_activity_baseline",
+      alertRecommended: status === "important",
+    });
+  }
+  if (conflict("device_online")) {
+    add({
+      category: "device_data_gap", status: "unknown",
+      summary: "Device status reports conflict.",
+      supportingEvidence: evidence("device_online"), conflictingEvidence: evidence("device_online"),
+      limitations: ["Device availability cannot be confirmed."],
+      recommendedAction: "Check the device connection and its recent sync time.",
+      ruleId: "device_status_conflict", alertRecommended: false,
+    });
+  } else if (no("device_online")) {
+    add({
+      category: "device_data_gap", status: "watch",
+      summary: "The device was reported offline, so recent observations may be missing.",
+      supportingEvidence: evidence("device_online"), conflictingEvidence: [],
+      limitations: ["An offline device cannot establish the person's current condition."],
+      recommendedAction: "Check the device battery, connection, and the person's condition.",
+      ruleId: "device_gap", alertRecommended: true,
+    });
+  }
+  if (input.note.trim() || values("note").length) {
+    add({
+      category: "general_check", status: "unknown",
+      summary: reportedSummary ?? "Additional user-reported context was supplied and needs confirmation.",
+      supportingEvidence: ["User-provided additional context"], conflictingEvidence: [],
+      limitations: ["Free-text reports are not verified measurements."],
+      recommendedAction: "Check the reported concern with the person and add a timed observation if available.",
+      ruleId: "reported_context", alertRecommended: false,
+    });
+  }
+  if (video && (video.uncertain || !input.videoObservedAt ||
+      video.evidence.some((e) => e.kind === "fall_posture" && e.confidence === "low"))) {
+    add({
+      category: "general_check", status: "unknown",
+      summary: "The clip contains uncertain or unaligned visual evidence that cannot confirm the person's current condition.",
+      supportingEvidence: [], conflictingEvidence: [],
+      limitations: ["Review the clip and its recording time before relying on it for a risk decision."],
+      recommendedAction: "Check in with the person and confirm when the clip was recorded.",
+      ruleId: "video_uncertain_or_unaligned", alertRecommended: false,
+    });
+  }
+  if (!findings.length && yes("device_online") && yes("worn") && !conflict("worn")) {
+    add({
+      category: "general_check", status: "stable",
+      summary: "The supplied device and wearing observations show no concerning pattern within this limited check.",
+      supportingEvidence: [...evidence("device_online"), ...evidence("worn")],
+      conflictingEvidence: [], limitations: ["This does not establish overall health or conditions outside the observation period."],
+      recommendedAction: "Continue checking current observations and device status.",
+      ruleId: "no_concerning_observation", alertRecommended: false,
+    });
+  }
+  if (!findings.length) {
+    add({
+      category: "general_check", status: "unknown",
+      summary: "The submitted evidence does not support a reliable risk assessment.",
+      supportingEvidence: [], conflictingEvidence: [],
+      limitations: ["Add relevant, timed observations or a data file."],
+      recommendedAction: "Check in with the person and add observations from the relevant time.",
+      ruleId: "insufficient_evidence", alertRecommended: false,
+    });
+  }
+  if (video?.uncertain) limitations.push("The video is unclear and cannot confirm an event.");
+  if (video && !input.videoObservedAt)
+    limitations.push("The video recording time was not confirmed, so visual evidence was not used for the risk decision.");
   if (input.videoAssetId && !video)
     limitations.push("Video was not included in the analysis.");
-  const action =
-    level === "important"
-      ? "Contact the selected person to check their condition."
-      : ruleId === "device_gap"
-        ? "Check the device battery and connection."
-        : level === "stable"
-          ? "No concerning pattern was identified in these observations. Continue checking current device status."
-          : "Review the available information and check in with the selected person.";
+  const rank = { critical: 4, important: 3, watch: 2, stable: 1, unknown: 0, paused: 0 };
+  const lead = [...findings].sort((a, b) => rank[b.status] - rank[a.status])[0];
+  const hasUnknown = findings.some((f) => f.status === "unknown");
+  const level: RiskLevel | null = lead.status === "unknown" || (lead.status === "stable" && hasUnknown)
+    ? null : lead.status as RiskLevel;
   return {
     level,
     displayStatus: level ?? "unknown",
-    headline:
-      level === "important"
-        ? "A check-in is recommended"
-        : level === "watch"
-          ? "An observation needs review"
-          : level === "stable"
-            ? "No concerning pattern in these observations"
-            : "More information is needed",
-    recommendedAction: action,
-    limitations: [...limitations, ...(video?.limitations ?? [])],
-    ruleId,
+    headline: level === "important" ? "A check-in is recommended"
+      : level === "watch" ? "Observations need review"
+      : level === "stable" ? "No concerning pattern in the supplied observations"
+      : "More information is needed",
+    recommendedAction: lead.recommendedAction,
+    limitations: [...limitations, ...findings.flatMap((f) => f.limitations), ...(video?.limitations ?? [])],
+    ruleId: lead.ruleId,
+    findings,
   };
 }
 export async function runAssessment(id: string) {
@@ -307,6 +371,12 @@ export async function runAssessment(id: string) {
       }
     }
     if (getAssessment(id).status === "cancelled") return;
+    const reportText = [
+      a.input.note,
+      ...observations.filter((o) => o.kind === "note").map((o) => String(o.value)),
+    ].filter(Boolean).join("\n");
+    const reportedSummary = await summarizeReportedContext(reportText, controller.signal);
+    if (getAssessment(id).status === "cancelled") return;
     const store = getStore(a.personId);
     if (!store) throw new Error("Person is unavailable");
     const decision = evaluate(a.input, observations, video, {
@@ -316,38 +386,56 @@ export async function runAssessment(id: string) {
       steps:
         store.baselines.find((b) => b.metric === "activity" && b.learned)
           ?.median ?? null,
-    });
-    const type: EventType = a.input.scenario;
+    }, reportedSummary);
+    const priority = { critical: 4, important: 3, watch: 2, stable: 1, unknown: 0, paused: 0 };
+    const alertFinding = decision.findings
+      ?.filter((f) => f.alertRecommended)
+      .sort((a, b) => priority[b.status] - priority[a.status])[0];
+    const type: EventType = alertFinding?.category ??
+      decision.findings?.find((f) => f.status === decision.displayStatus)?.category ??
+      "general_check";
+    const alignedVideoEvidence = video && !video.uncertain && a.input.videoObservedAt
+      ? video.evidence.filter((e) =>
+          e.confidence !== "low" &&
+          Math.abs(Date.parse(a.input.videoObservedAt!) + e.atSeconds * 1000 -
+            Date.parse(a.input.observedAt)) <= 5 * 60_000)
+      : [];
     const event: MonitoredEvent = {
       id: "pending",
       subjectId: a.personId,
       type,
       trendMetric: null,
       occurredAt: a.input.observedAt,
-      signals: observations.map((o) => ({
-        source:
+      signals: [...observations.map((o) => ({
+        source: (
           o.kind === "fall_posture"
             ? "camera_posture"
             : o.kind === "heart_rate"
               ? "watch_hr"
               : o.kind === "impact"
                 ? "watch_impact"
-                : "watch_activity",
-        description: `${o.kind.replaceAll("_", " ")}: ${o.value}`,
+                : "watch_activity") as MonitoredEvent["signals"][number]["source"],
+        description: o.kind === "note"
+          ? "Additional user-reported context"
+          : `${o.kind.replaceAll("_", " ")}: ${o.value}`,
         withinCoverage: o.withinCoverage,
-      })),
+      })), ...alignedVideoEvidence.map((e) => ({
+        source: e.kind === "fall_posture" ? "camera_posture" as const : "camera_motion" as const,
+        description: `Video at ${e.atSeconds}s: ${e.description} (${e.confidence} confidence)`,
+        withinCoverage: true,
+      }))],
       fallPhase:
-        a.input.scenario === "possible_fall"
-          ? observations.some((o) => o.kind === "recovery" && o.value === true)
+        type === "possible_fall"
+          ? observations.some((o) => o.kind === "recovery" && o.value === true) ||
+            alignedVideoEvidence.some((e) => e.kind === "recovery")
             ? "recovered"
             : "candidate"
           : "not_applicable",
       recoveryWindowEndsAt: null,
-      independentChannelCount: new Set(
-        observations.map((o) =>
-          o.kind === "fall_posture" ? "camera" : "watch",
-        ),
-      ).size,
+      independentChannelCount: new Set([
+        ...observations.map((o) => o.kind === "fall_posture" ? "camera" : "watch"),
+        ...(alignedVideoEvidence.length ? ["camera"] : []),
+      ]).size,
       dedupeKey: id,
     };
     const facts = buildStructuredFacts({
@@ -359,6 +447,15 @@ export async function runAssessment(id: string) {
       trendSynthetic: true,
     });
     facts.observations = observations;
+    facts.assessmentFindings = decision.findings?.map((f) => ({
+      category: f.category,
+      status: f.status,
+      summary: f.summary,
+      supportingEvidence: f.supportingEvidence,
+      conflictingEvidence: f.conflictingEvidence,
+      limitations: f.limitations,
+      recommendedAction: f.recommendedAction,
+    }));
     const summary = await callKimi(id, facts);
     const current = getAssessment(id);
     if (current.status === "cancelled" || current.attempt !== attempt) return;
@@ -375,7 +472,7 @@ export async function runAssessment(id: string) {
       !alert &&
       decision.level &&
       decision.level !== "stable" &&
-      (type === "general_check" || latest.subscription[type])
+      !!alertFinding
     ) {
       const now = new Date().toISOString();
       alert = {
@@ -430,13 +527,16 @@ export async function runAssessment(id: string) {
         at: new Date().toISOString(),
         actorUserId: a.ownerId,
         actorRole: "primary_family",
-        action: "alert_created",
+        action: alert ? "alert_created" : "assessment_completed",
         detail: {
           assessmentId: id,
           eventId: event.id,
           alertId: alert?.id ?? null,
           source: "uploaded_sample",
           rule: decision.ruleId,
+          alertCategory: alertFinding?.category ?? null,
+          supportingEvidenceCount: alertFinding?.supportingEvidence.length ?? 0,
+          conflictingEvidenceCount: alertFinding?.conflictingEvidence.length ?? 0,
         },
       });
     saveStore(latest);
@@ -454,21 +554,26 @@ export async function runAssessment(id: string) {
         plainSummary:
           summary.source === "llm"
             ? summary.eventSummary
-            : decision.headline + ". " + decision.recommendedAction,
+            : decision.findings!.map((f) => f.summary).join(" ") + " " + decision.recommendedAction,
+        alertReason: alert ? alertFinding?.summary ?? null : null,
         observations,
         video,
         sourceBreakdown: [
-          "Uploaded sample observations",
-          ...(video ? ["Uploaded sample video"] : []),
+          "Submitted sample observations",
+          ...(video
+            ? [a.input.videoObservedAt
+              ? "Analyzed sample video with confirmed recording time"
+              : "Reviewed sample video; recording time unconfirmed"]
+            : a.input.videoAssetId ? ["Attached sample video; analysis unavailable"] : []),
         ],
         model: {
           provider: "kimi",
           modelId: video
             ? visualModel()
-            : summary.source === "llm"
+            : summary.source === "llm" || !!reportedSummary
               ? (process.env.KIMI_MODEL ?? "moonshot-v1-8k")
               : null,
-          used: !!video || summary.source === "llm",
+          used: !!video || summary.source === "llm" || !!reportedSummary,
           fallbackReason:
             videoError ??
             (summary.source !== "llm"
@@ -477,7 +582,7 @@ export async function runAssessment(id: string) {
         },
         decision: {
           engine: "observation_rules",
-          version: "3.0-sample",
+          version: "4.0-sample-fusion",
           ruleId: decision.ruleId,
         },
         eventId: event.id,

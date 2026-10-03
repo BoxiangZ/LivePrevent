@@ -79,7 +79,8 @@ export type Observation = z.infer<typeof observationSchema>;
 export const createAssessmentSchema = z
   .object({
     personId: id,
-    scenario,
+    scenario: scenario.optional(), // retained for existing assessments and API clients
+    primaryConcern: scenario.optional(),
     observedAt: iso,
     timeZone: z.string().refine((v) => {
       try {
@@ -92,6 +93,7 @@ export const createAssessmentSchema = z
     observations: z.array(observationSchema).max(1000),
     sensorAssetIds: z.array(id).max(3),
     videoAssetId: id.optional(),
+    videoObservedAt: iso.optional(),
     note: z.string().max(500).default(""),
     provenance: z.literal("sample_user_uploaded"),
     consent: z.literal(true),
@@ -116,6 +118,7 @@ export const mediaSchema = z.object({
   expiresAt: iso,
   error: z.string().nullable(),
   observations: z.array(observationSchema),
+  importNote: z.string().optional(),
 });
 export type Media = z.infer<typeof mediaSchema>;
 export const visualFindingSchema = z
@@ -137,6 +140,17 @@ export const visualFindingSchema = z
       .max(20),
   })
   .strict();
+export const riskFindingSchema = z.object({
+  category: scenario,
+  status: displayStatus,
+  summary: z.string(),
+  supportingEvidence: z.array(z.string()),
+  conflictingEvidence: z.array(z.string()),
+  limitations: z.array(z.string()),
+  recommendedAction: z.string(),
+  ruleId: z.string(),
+  alertRecommended: z.boolean(),
+});
 export const findingSchema = z.object({
   displayStatus,
   level: risk.nullable(),
@@ -144,6 +158,8 @@ export const findingSchema = z.object({
   plainSummary: z.string(),
   recommendedAction: z.string(),
   limitations: z.array(z.string()),
+  findings: z.array(riskFindingSchema).optional(), // older saved results lack this field
+  alertReason: z.string().nullable().optional(),
   observations: z.array(observationSchema),
   video: visualFindingSchema.nullable(),
   sourceBreakdown: z.array(z.string()),

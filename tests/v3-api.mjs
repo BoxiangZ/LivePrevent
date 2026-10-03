@@ -69,7 +69,7 @@ await request("/api/v3/assessments", { method: "POST", raw: true, body: "{broken
 const now = new Date().toISOString();
 const input = {
   personId,
-  scenario: "general_check",
+  primaryConcern: "activity_drop",
   observedAt: now,
   timeZone: "Asia/Hong_Kong",
   observations: [
@@ -122,6 +122,8 @@ async function finish(id) {
 const result = await finish(created.assessmentId);
 assert.equal(result.status, "partial");
 assert.equal(result.finding.level, "stable");
+assert.equal(result.input.primaryConcern, "activity_drop");
+assert.equal(result.finding.findings[0].category, "general_check");
 assert.equal(result.finding.model.used, false);
 assert.equal(result.finding.alertId, null);
 const event = (

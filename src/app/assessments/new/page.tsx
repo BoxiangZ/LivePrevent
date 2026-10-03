@@ -27,15 +27,18 @@ function Form({ personId }: { personId: string }) {
   const [options, setOptions] = useState<z.infer<typeof optionSchema> | null>(
     null,
   );
-  const [scenario, setScenario] =
-    useState<z.infer<typeof createAssessmentSchema>["scenario"]>(
-      "general_check",
-    );
+  const [primaryConcern, setPrimaryConcern] =
+    useState<z.infer<typeof createAssessmentSchema>["primaryConcern"]>();
   const [at, setAt] = useState(toLocal(new Date()));
+  const [videoAt, setVideoAt] = useState("");
   const [observations, setObservations] = useState<Observation[]>([]);
   const [sensor, setSensor] = useState<Media | null>(null);
   const [video, setVideo] = useState<Media | null>(null);
+  const [selectedSensorFileName, setSelectedSensorFileName] = useState("");
+  const [selectedVideoFileName, setSelectedVideoFileName] = useState("");
+  const [uploadError, setUploadError] = useState<{ kind: "sensor" | "video"; message: string } | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
+  const [uploadingKind, setUploadingKind] = useState<"sensor" | "video" | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [consent, setConsent] = useState(false);
@@ -64,7 +67,11 @@ function Form({ personId }: { personId: string }) {
   }
   async function upload(file: File, kind: "sensor" | "video") {
     setError("");
+    setUploadError(null);
+    if (kind === "sensor") setSelectedSensorFileName(file.name);
+    else setSelectedVideoFileName(file.name);
     setProgress(0);
+    setUploadingKind(kind);
     let assetId: string | null = null;
     try {
       const created = await api(
@@ -87,15 +94,21 @@ function Form({ personId }: { personId: string }) {
         const request = new XMLHttpRequest();
         xhr.current = request;
         request.open("PUT", created.uploadUrl);
+        // Set this explicitly instead of relying on browser-specific File
+        // serialization. The upload route reads the raw request body.
+        if (file.type) request.setRequestHeader("Content-Type", file.type);
         request.upload.onprogress = (e) => {
           if (e.lengthComputable && alive.current)
             setProgress(Math.round((e.loaded / e.total) * 100));
         };
         request.onload = () => {
           try {
-            const body = JSON.parse(request.responseText);
+            const body = request.responseText
+              ? JSON.parse(request.responseText)
+              : null;
             if (request.status >= 400)
-              throw new Error(body.message ?? "Upload failed");
+              throw new Error(body?.message ?? "Upload failed");
+            if (!body) throw new Error("Upload returned an empty response.");
             resolve(envelope(mediaSchema).parse(body).data);
           } catch (e) {
             reject(e);
@@ -107,7 +120,10 @@ function Form({ personId }: { personId: string }) {
         request.send(file);
       });
       if (alive.current) {
-        if (kind === "video") setVideo(result);
+        if (kind === "video") {
+          setVideo(result);
+          setVideoAt(at);
+        }
         else {
           setSensor(result);
           if (result.observations[0])
@@ -117,13 +133,19 @@ function Form({ personId }: { personId: string }) {
       }
     } catch (e) {
       if (alive.current)
-        setError(e instanceof Error ? e.message : "Upload failed");
+        setUploadError({
+          kind,
+          message: e instanceof Error ? e.message : "Upload failed",
+        });
       if (assetId)
         await api(`media/${assetId}`, z.object({ deleted: z.boolean() }), {
           method: "DELETE",
         }).catch(() => undefined);
     } finally {
-      if (alive.current) setProgress(null);
+      if (alive.current) {
+        setProgress(null);
+        setUploadingKind(null);
+      }
       xhr.current = null;
     }
   }
@@ -132,8 +154,15 @@ function Form({ personId }: { personId: string }) {
       await api(`media/${m.assetId}`, z.object({ deleted: z.boolean() }), {
         method: "DELETE",
       });
-      if (m.kind === "video") setVideo(null);
-      else setSensor(null);
+      if (m.kind === "video") {
+        setVideo(null);
+        setVideoAt("");
+      }
+      else {
+        setSensor(null);
+        setSelectedSensorFileName("");
+      }
+      if (m.kind === "video") setSelectedVideoFileName("");
       edit();
     } catch (e) {
       setError(String(e));
@@ -146,7 +175,7 @@ function Form({ personId }: { personId: string }) {
       { kind: "device_online", value: true, at: time, source: "sample_sensor" },
       { kind: "worn", value: true, at: time, source: "sample_sensor" },
     ]);
-    setScenario("general_check");
+    setPrimaryConcern(undefined);
   }
   function add() {
     try {
@@ -178,12 +207,13 @@ function Form({ personId }: { personId: string }) {
     try {
       const input = createAssessmentSchema.parse({
         personId,
-        scenario,
+        ...(primaryConcern ? { primaryConcern } : {}),
         observedAt: new Date(at).toISOString(),
         timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         observations,
         sensorAssetIds: sensor ? [sensor.assetId] : [],
         ...(video ? { videoAssetId: video.assetId } : {}),
+        ...(video && videoAt ? { videoObservedAt: new Date(videoAt).toISOString() } : {}),
         note,
         provenance: "sample_user_uploaded",
         consent,
@@ -234,15 +264,16 @@ function Form({ personId }: { personId: string }) {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <label className="text-sm">
-            What would you like reviewed?
+            Primary concern (optional)
             <select
               className="field"
-              value={scenario}
+              value={primaryConcern ?? ""}
               onChange={(e) => {
-                setScenario(e.target.value as typeof scenario);
+                setPrimaryConcern(e.target.value ? e.target.value as typeof primaryConcern : undefined);
                 edit();
               }}
             >
+              <option value="">Overall wellbeing and safety</option>
               {options?.scenarios.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
@@ -281,18 +312,40 @@ function Form({ personId }: { personId: string }) {
           >
             Download example CSV
           </a>
-          <input
-            aria-label="Upload sensor observations"
-            type="file"
-            accept=".csv,.json"
-            className="mt-3 block text-sm"
-            disabled={progress !== null || !!sensor}
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void upload(f, "sensor");
-              e.target.value = "";
-            }}
-          />
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+            <label
+              className="btn-secondary relative cursor-pointer overflow-hidden"
+              aria-disabled={progress !== null || !!sensor}
+            >
+              Choose CSV or JSON file
+              <input
+                type="file"
+                accept=".csv,.json"
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                disabled={progress !== null || !!sensor}
+                aria-label="Choose CSV or JSON file"
+                onClick={(e) => {
+                  // Clear the previous value before opening the picker so the
+                  // same file can be selected again after a failed upload.
+                  e.currentTarget.value = "";
+                }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void upload(f, "sensor");
+                }}
+              />
+            </label>
+            <span className="text-ink-mute">
+              {sensor?.name ?? (selectedSensorFileName
+                ? `${selectedSensorFileName}${uploadingKind === "sensor" ? " · Uploading…" : ""}`
+                : "No file selected")}
+            </span>
+          </div>
+          {uploadError?.kind === "sensor" && (
+            <p role="alert" className="mt-2 text-sm text-critical">
+              {uploadError.message}
+            </p>
+          )}
           {sensor && (
             <div className="mt-3">
               <p className="text-sm">
@@ -304,6 +357,9 @@ function Form({ personId }: { personId: string }) {
                   Remove file
                 </button>
               </p>
+              {sensor.importNote && (
+                <p className="mt-2 text-sm text-ink-mute">{sensor.importNote}</p>
+              )}
               <details className="mt-2 text-sm">
                 <summary>Preview imported data</summary>
                 {sensor.observations.slice(0, 10).map((o, i) => (
@@ -438,20 +494,55 @@ function Form({ personId }: { personId: string }) {
             {options?.limits.retentionHours ?? 24} hours and can be deleted
             sooner.
           </p>
-          <input
-            aria-label="Upload optional sample video"
-            type="file"
-            accept="video/mp4,.mp4"
-            disabled={progress !== null || !!video}
-            className="mt-3 block text-sm"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void upload(f, "video");
-              e.target.value = "";
-            }}
-          />
+          <div className="mt-3 flex flex-wrap items-center gap-3 text-sm">
+            <label
+              className="btn-secondary relative cursor-pointer overflow-hidden"
+              aria-disabled={progress !== null || !!video}
+            >
+              Choose MP4 video
+              <input
+                type="file"
+                accept="video/mp4,.mp4"
+                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                disabled={progress !== null || !!video}
+                aria-label="Choose MP4 video"
+                onClick={(e) => {
+                  e.currentTarget.value = "";
+                }}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void upload(f, "video");
+                }}
+              />
+            </label>
+            <span className="text-ink-mute">
+              {video?.name ?? (selectedVideoFileName
+                ? `${selectedVideoFileName}${uploadingKind === "video" ? " · Uploading…" : ""}`
+                : "No file selected")}
+            </span>
+          </div>
+          {uploadError?.kind === "video" && (
+            <p role="alert" className="mt-2 text-sm text-critical">
+              {uploadError.message}
+            </p>
+          )}
           {video && (
             <div className="mt-4">
+              <label className="mb-3 block text-sm">
+                Video recording start time
+                <input
+                  className="field"
+                  type="datetime-local"
+                  value={videoAt}
+                  onChange={(e) => {
+                    setVideoAt(e.target.value);
+                    edit();
+                  }}
+                />
+                <span className="mt-1 block text-xs text-ink-mute">
+                  Confirm when the clip was recorded so its evidence can be compared with observations.
+                </span>
+              </label>
               <video
                 className="max-h-64 w-full rounded-lg bg-black"
                 controls

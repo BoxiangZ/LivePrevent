@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = [
   "permission_changed",
   // 警报链路 — PRD §6.4
   "alert_created",
+  "assessment_completed",
   "alert_escalated",
   "alert_acknowledged",
   "alert_resolved",

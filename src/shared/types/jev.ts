@@ -51,6 +51,15 @@ export interface JevOutput {
 /** 结构化事实 — Kimi 摘要的唯一输入。数值必须可追溯 — PRD §10.2 */
 export interface StructuredFacts {
   observations?: import("@/shared/contracts/assessment").Observation[];
+  assessmentFindings?: Array<{
+    category: string;
+    status: string;
+    summary: string;
+    supportingEvidence: string[];
+    conflictingEvidence: string[];
+    limitations: string[];
+    recommendedAction: string;
+  }>;
   subjectAlias: string; // 别名，不含姓名
   eventType: EventType;
   occurredAtLocal: string; // 当地时区时间

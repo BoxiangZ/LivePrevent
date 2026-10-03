@@ -56,7 +56,7 @@ Video: optional MP4, up to 50 MiB and 120 seconds; server validates container/he
 ```json
 {
   "personId":"sub_margaret",
-  "scenario":"possible_fall",
+  "primaryConcern":"possible_fall",
   "observedAt":"2026-10-03T10:00:00Z",
   "timeZone":"Asia/Hong_Kong",
   "observations":[{"kind":"impact","value":true,"at":"2026-10-03T10:00:00Z","source":"sample_manual"}],
@@ -68,15 +68,15 @@ Video: optional MP4, up to 50 MiB and 120 seconds; server validates container/he
 }
 ```
 
-`videoAssetId` is optional. At least one observation or parsed sensor file is required. Reusing the same key/input returns the same assessment; changing that input returns 409. Person mismatch, unfinished upload and invalid file kind are rejected. Sources: sample_manual/sample_sensor. Scenario and kind enums are provided by options and the shared schema.
+`primaryConcern` is optional and only changes result presentation; omission requests an overall review. The legacy `scenario` field remains accepted for stored records and older clients but no longer gates risk evaluation. `videoAssetId` and `videoObservedAt` are optional; the form asks users to confirm recording start time when a clip is attached. Without that time, the clip can be described but visual evidence does not drive the risk decision. At least one observation or parsed sensor file is required. Reusing the same key/input returns the same assessment; changing that input returns 409. Person mismatch, unfinished upload and invalid file kind are rejected. Sources: sample_manual/sample_sensor. Concern and kind enums are provided by options and the shared schema.
 
 `POST assessments/:id/analyze` → 202 queued. A persisted background worker advances queued → analyzing → completed/partial/failed. `GET assessments/:id` is read-only. `POST .../cancel` cancels created/queued/analyzing; `POST .../retry` retries partial/failed/cancelled. A server restart recovers queued work; expired analyzing leases become retryable failures. Event IDs remain stable across retry; resolved alerts are not reopened. Failed or deleted attachments must be uploaded again in a new assessment.
 
-`Finding`: `displayStatus,level?,headline,plainSummary,recommendedAction,limitations[],observations[],video?,sourceBreakdown[],model{provider,modelId?,used,fallbackReason?},decision{engine,version,ruleId},eventId?,alertId?`.
+`Finding`: `displayStatus,level?,headline,plainSummary,recommendedAction,limitations[],findings[]?,alertReason?,observations[],video?,sourceBreakdown[],model{provider,modelId?,used,fallbackReason?},decision{engine,version,ruleId},eventId?,alertId?`. Each new `findings[]` entry includes `category,status,summary,supportingEvidence[],conflictingEvidence[],limitations[],recommendedAction,ruleId,alertRecommended`. Older saved assessments may lack `findings`.
 
-`video`: `summary,uncertain,limitations[],evidence[]{atSeconds,description,kind,confidence}`. Timestamps must be within the clip; kind is fall_posture/recovery/movement/unclear. Evidence links seek the private video while it remains available. Model observation is separate from the rule decision. Missing evidence is Unknown, not Stable. Observations outside the five-minute selection window or explicitly outside coverage are excluded from rule decisions; conflicts are disclosed. Uploaded historical clips never trigger critical escalation merely because they end without visible recovery.
+`video`: `summary,uncertain,limitations[],evidence[]{atSeconds,description,kind,confidence}`. Timestamps must be within the clip; kind is fall_posture/recovery/movement/unclear. Evidence links seek the private video while it remains available. Model observation is separate from the rule decision. Missing evidence is Unknown, not Stable. Observations outside the five-minute selection window or explicitly outside coverage are excluded from rule decisions; video evidence is decision-relevant only when its confirmed recording time places it in that window. Conflicts are disclosed. Uploaded historical clips never trigger critical escalation merely because they end without visible recovery.
 
-Kimi receives the full structured sample observations and optional clip through `video_url` using a base64 payload. Default visual model is configurable via `KIMI_VISION_MODEL` (kimi-k2.5). Protocol reference: [Moonshot official visual API example](https://github.com/MoonshotAI/Kimi-K2.5#6-model-usage). The existing text summary adapter uses `KIMI_MODEL`. The risk decision uses auditable sample rules, not an asserted medical prediction. No key/offline/provider failure/invalid model output → explicit partial result; `model.used` and `fallbackReason` report what happened. The local 24-hour policy does not promise deletion from a third-party provider's internal logs.
+Kimi receives the full structured sample observations and optional clip through `video_url` using a base64 payload. The default visual model is configurable via `KIMI_VISION_MODEL` (`kimi-k3`); see the [official Kimi vision guide](https://platform.kimi.com/docs/guide/use-kimi-vision-model). The existing text summary adapter uses `KIMI_MODEL`; a separate call summarizes user-reported free text as unverified context. The risk decision uses auditable sample rules, not an asserted medical prediction. No key/offline/provider failure/invalid model output → explicit partial result or a controlled fallback; `model.used` and `fallbackReason` report the video/text summary path. The local 24-hour policy does not promise deletion from a third-party provider's internal logs.
 
 ## Mutations and compatibility
 

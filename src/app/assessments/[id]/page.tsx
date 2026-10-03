@@ -109,18 +109,11 @@ export default function Result({
               · Updated: {new Date(result.updatedAt).toLocaleString()}
             </p>
             <p className="mt-2 text-xs text-ink-mute">
-              Source: sample observations
-              {result.input.videoAssetId
-                ? result.finding?.video
-                  ? result.input.videoObservedAt
-                    ? " and analyzed sample video"
-                    : " and reviewed sample video (recording time unconfirmed)"
-                  : " and attached sample video (not analyzed)"
-                : ""}
+              Source: {result.finding?.sourceBreakdown.join(" · ") ?? "Submitted information"}
             </p>
-            {(result.error || result.finding?.model.fallbackReason) && (
+            {result.error && (
               <p className="mt-3 text-sm text-important">
-                {result.error || result.finding?.model.fallbackReason}
+                {result.error}
               </p>
             )}
             <div className="mt-4 flex gap-3">
@@ -242,7 +235,7 @@ export default function Result({
                 <h2 className="font-semibold">Evidence reviewed</h2>
                 <details className="mt-3">
                   <summary className="cursor-pointer text-sm">
-                    {f.observations.length} sensor observations
+                    {f.observations.length} confirmed observations
                   </summary>
                   <ul className="mt-3 space-y-2 text-sm">
                     {f.observations.map((o, i) => (
@@ -347,7 +340,16 @@ export default function Result({
                     ? `${f.model.provider} · ${f.model.modelId}`
                     : "Not used"}
                 </div>
-                <div>{f.model.fallbackReason}</div>
+                {result.error && f.model.fallbackReason && (
+                  <div>Video limitation: {f.model.fallbackReason}</div>
+                )}
+                {f.model.summaryDiagnostic && (
+                  <div>
+                    Explanation: {f.model.summaryDiagnostic.code === "generated"
+                      ? "AI-generated from verified facts"
+                      : `Evidence-based wording (${f.model.summaryDiagnostic.code.replaceAll("_", " ")})`}
+                  </div>
+                )}
                 <div>
                   Decision: {f.decision.engine} · {f.decision.version} ·{" "}
                   {f.decision.ruleId}

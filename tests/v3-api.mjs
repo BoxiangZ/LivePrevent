@@ -120,11 +120,13 @@ async function finish(id) {
   throw Error("Task did not finish");
 }
 const result = await finish(created.assessmentId);
-assert.equal(result.status, "partial");
+assert.equal(result.status, "completed");
+assert.equal(result.retryable, false);
 assert.equal(result.finding.level, "stable");
 assert.equal(result.input.primaryConcern, "activity_drop");
 assert.equal(result.finding.findings[0].category, "general_check");
 assert.equal(result.finding.model.used, false);
+assert.equal(result.finding.model.fallbackReason, null);
 assert.equal(result.finding.alertId, null);
 const event = (
   await request(`/api/v3/people/${personId}/events/${result.finding.eventId}`)

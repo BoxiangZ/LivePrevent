@@ -109,78 +109,154 @@ export function templateFallback(facts: StructuredFacts): KimiSummary {
   };
 }
 
+function fallbackWithDiagnostic(
+  facts: StructuredFacts,
+  eventId: string,
+  code: NonNullable<KimiSummary["diagnostic"]>["code"],
+  message: string,
+) {
+  const fallback = templateFallback(facts);
+  fallback.eventId = eventId;
+  fallback.diagnostic = { code, message };
+  return fallback;
+}
+
 interface KimiApiResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
+type SummaryFailure = {
+  code: Exclude<NonNullable<KimiSummary["diagnostic"]>["code"], "generated" | "not_configured" | "offline_demo">;
+  message: string;
+};
+
+function parseSummaryContent(content: string): Partial<KimiSummary> | null {
+  const trimmed = content.trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "");
+  try {
+    return JSON.parse(trimmed) as Partial<KimiSummary>;
+  } catch {
+    return null;
+  }
+}
+
 /** 调用 Kimi（OpenAI 兼容 chat completions）。永不抛异常。 */
 export async function callKimi(eventId: string, facts: StructuredFacts): Promise<KimiSummary> {
-  const fallback = templateFallback(facts);
-  fallback.eventId = eventId;
-
   const apiKey = process.env.KIMI_API_KEY;
   const offline = process.env.DEMO_KIMI_OFFLINE === "1";
-  if (!apiKey || offline) return fallback;
+  if (!apiKey)
+    return fallbackWithDiagnostic(
+      facts,
+      eventId,
+      "not_configured",
+      "The AI explanation service is not configured. The assessment is based on confirmed observations.",
+    );
+  if (offline)
+    return fallbackWithDiagnostic(
+      facts,
+      eventId,
+      "offline_demo",
+      "AI explanations are disabled in offline demo mode. The assessment is based on confirmed observations.",
+    );
 
   const baseUrl = process.env.KIMI_BASE_URL ?? "https://api.moonshot.ai/v1";
   const model = process.env.KIMI_MODEL ?? "moonshot-v1-8k";
   const timeoutMs = Number(process.env.KIMI_TIMEOUT_MS ?? 25000);
 
   const { system, user } = buildKimiPrompt(facts);
+  let lastFailure: SummaryFailure = {
+    code: "request_failed",
+    message: "The AI explanation service could not be reached or timed out. The assessment is based on confirmed observations.",
+  };
 
-  try {
+  // The explanation is optional, so one bounded retry is preferable to
+  // making the family retry the entire assessment (including video/rules).
+  for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const res = await fetch(`${baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        // 注意：kimi-k3 仅允许 temperature=1（默认），传其他值会 400 — 故不传
-        response_format: { type: "json_object" },
-      }),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) return fallback;
-    const data = (await res.json()) as KimiApiResponse;
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) return fallback;
-
-    const parsed = JSON.parse(content) as Partial<KimiSummary>;
-    if (
-      typeof parsed.eventSummary !== "string" ||
-      typeof parsed.baselineComparison !== "string" ||
-      typeof parsed.relatedChanges !== "string" ||
-      typeof parsed.suggestedNextStep !== "string"
-    ) {
-      return fallback;
+    try {
+      const res = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          response_format: { type: "json_object" },
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        lastFailure = {
+          code: "provider_error",
+          message: `The AI explanation service returned HTTP ${res.status}. The assessment is based on confirmed observations.`,
+        };
+        continue;
+      }
+      const data = (await res.json()) as KimiApiResponse;
+      const content = data.choices?.[0]?.message?.content;
+      if (!content) {
+        lastFailure = {
+          code: "empty_response",
+          message: "The AI explanation service returned no usable text. The assessment is based on confirmed observations.",
+        };
+        continue;
+      }
+      const parsed = parseSummaryContent(content);
+      if (!parsed) {
+        lastFailure = {
+          code: "invalid_json",
+          message: "The AI explanation did not use the required structured format. The assessment is based on confirmed observations.",
+        };
+        continue;
+      }
+      if (
+        typeof parsed.eventSummary !== "string" ||
+        typeof parsed.baselineComparison !== "string" ||
+        typeof parsed.relatedChanges !== "string" ||
+        typeof parsed.suggestedNextStep !== "string"
+      ) {
+        lastFailure = {
+          code: "invalid_shape",
+          message: "The AI explanation was incomplete. The assessment is based on confirmed observations.",
+        };
+        continue;
+      }
+      const candidate = {
+        eventSummary: parsed.eventSummary,
+        baselineComparison: parsed.baselineComparison,
+        relatedChanges: parsed.relatedChanges,
+        suggestedNextStep: parsed.suggestedNextStep,
+      };
+      if (!validateKimiOutput(candidate, facts) || /[㐀-鿿]/u.test(JSON.stringify(candidate))) {
+        lastFailure = {
+          code: "validation_failed",
+          message: "The AI explanation could not be verified against the submitted facts. The assessment is based on confirmed observations.",
+        };
+        continue;
+      }
+      return {
+        ...candidate,
+        eventId,
+        validationPassed: true,
+        source: "llm",
+        diagnostic: { code: "generated", message: "AI explanation generated from the confirmed assessment facts." },
+      };
+    } catch (err) {
+      console.warn(`[kimi] explanation attempt ${attempt + 1} failed:`, err instanceof Error ? err.message : err);
+      lastFailure = {
+        code: "request_failed",
+        message: "The AI explanation service could not be reached or timed out. The assessment is based on confirmed observations.",
+      };
+    } finally {
+      clearTimeout(timer);
     }
-
-    const candidate = {
-      eventSummary: parsed.eventSummary,
-      baselineComparison: parsed.baselineComparison,
-      relatedChanges: parsed.relatedChanges,
-      suggestedNextStep: parsed.suggestedNextStep,
-    };
-
-    // 数值与输入不一致 → 丢弃，降级模板 — PRD §10.2
-    if (!validateKimiOutput(candidate, facts) || /[㐀-鿿]/u.test(JSON.stringify(candidate))) {
-      console.warn("[kimi] numeric validation failed → template fallback");
-      return fallback;
-    }
-
-    return { ...candidate, eventId, validationPassed: true, source: "llm" };
-  } catch (err) {
-    console.warn("[kimi] call failed → template fallback:", err instanceof Error ? err.message : err);
-    return fallback; // 超时 / 网络错误 / JSON 解析失败
   }
+  return fallbackWithDiagnostic(facts, eventId, lastFailure.code, lastFailure.message);
 }

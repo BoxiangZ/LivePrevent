@@ -168,6 +168,12 @@ export const findingSchema = z.object({
     modelId: z.string().nullable(),
     used: z.boolean(),
     fallbackReason: z.string().nullable(),
+    summaryDiagnostic: z
+      .object({
+        code: z.string(),
+        message: z.string(),
+      })
+      .optional(),
   }),
   decision: z.object({
     engine: z.string(),

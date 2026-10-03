@@ -18,6 +18,9 @@ import type { DemoStateSnapshot } from "@/server/snapshot";
 
 interface DemoContextValue {
   snapshot: DemoStateSnapshot | null;
+  selectedPersonId: string;
+  selectPerson: (personId: string) => void;
+  error: string | null;
   /** 以服务端 nowMs 为基准的剩余毫秒数（负数表示已到期） */
   msUntil: (iso: string | null | undefined) => number | null;
   refresh: () => Promise<void>;
@@ -38,26 +41,50 @@ const POLL_MS = 500;
 export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [snapshot, setSnapshot] = useState<DemoStateSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selectedPersonId, setSelectedPersonId] = useState("sub_margaret");
+  const [ready, setReady] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   // 服务端与客户端的时钟差（snapshot.nowMs - 本地收到时刻）
   const skewRef = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/demo/state", { cache: "no-store" });
-      if (!res.ok) return;
+      const res = await fetch(`/api/demo/state?personId=${encodeURIComponent(selectedPersonId)}`, { cache: "no-store" });
+      if (res.status === 404 && selectedPersonId !== "sub_margaret") {
+        window.localStorage.removeItem("lp_selected_person");
+        setSelectedPersonId("sub_margaret");
+        return;
+      }
+      if (!res.ok) throw new Error(`Unable to load current status (${res.status})`);
       const data = (await res.json()) as DemoStateSnapshot;
       skewRef.current = data.nowMs - Date.now();
       setSnapshot(data);
+      setError(null);
     } catch {
-      // 网络抖动时保留旧快照，下一秒重试
+      setError("Unable to verify current status. Check the connection and try again.");
     }
+  }, [selectedPersonId]);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("lp_selected_person");
+    if (saved) setSelectedPersonId(saved);
+    setReady(true);
   }, []);
 
   useEffect(() => {
+    if (!ready) return;
     refresh();
     const t = setInterval(refresh, POLL_MS);
     return () => clearInterval(t);
-  }, [refresh]);
+  }, [ready, refresh]);
+
+  const selectPerson = useCallback((personId: string) => {
+    if (personId === selectedPersonId) return;
+    setSnapshot(null);
+    setError(null);
+    setSelectedPersonId(personId);
+    window.localStorage.setItem("lp_selected_person", personId);
+  }, [selectedPersonId]);
 
   const serverNow = useCallback(() => Date.now() + skewRef.current, []);
 
@@ -73,7 +100,15 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     async (fn: () => Promise<Response>) => {
       setBusy(true);
       try {
-        await fn();
+        const response = await fn();
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          setError(body.error ?? `Action failed (${response.status})`);
+        } else {
+          setError(null);
+        }
+      } catch {
+        setError("Action failed. Check the connection and try again.");
       } finally {
         await refresh();
         setBusy(false);
@@ -88,10 +123,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         fetch("/api/demo/inject", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scenario: "fall" }),
+          body: JSON.stringify({ scenario: "fall", personId: selectedPersonId }),
         })
       ),
-    [withBusy]
+    [withBusy, selectedPersonId]
   );
 
   const injectInactivity = useCallback(
@@ -100,15 +135,15 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         fetch("/api/demo/inject", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scenario: "inactivity" }),
+          body: JSON.stringify({ scenario: "inactivity", personId: selectedPersonId }),
         })
       ),
-    [withBusy]
+    [withBusy, selectedPersonId]
   );
 
   const resetDemo = useCallback(
-    () => withBusy(() => fetch("/api/demo/reset", { method: "POST" })),
-    [withBusy]
+    () => withBusy(() => fetch("/api/demo/reset", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personId: selectedPersonId }) })),
+    [withBusy, selectedPersonId]
   );
 
   const ackAlert = useCallback(
@@ -117,10 +152,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         fetch(`/api/alerts/${alertId}/ack`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contactId, token }),
+          body: JSON.stringify({ contactId, token, personId: selectedPersonId }),
         })
       ),
-    [withBusy]
+    [withBusy, selectedPersonId]
   );
 
   const resolveAlert = useCallback(
@@ -129,10 +164,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         fetch(`/api/alerts/${alertId}/resolve`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reason, note }),
+          body: JSON.stringify({ reason, note, personId: selectedPersonId }),
         })
       ),
-    [withBusy]
+    [withBusy, selectedPersonId]
   );
 
   const setPaused = useCallback(
@@ -141,10 +176,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         fetch("/api/demo/pause", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ paused }),
+          body: JSON.stringify({ paused, personId: selectedPersonId }),
         })
       ),
-    [withBusy]
+    [withBusy, selectedPersonId]
   );
 
   const requestKimiSummary = useCallback(
@@ -163,6 +198,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     <DemoContext.Provider
       value={{
         snapshot,
+        selectedPersonId,
+        selectPerson,
+        error,
         msUntil,
         refresh,
         injectFall,

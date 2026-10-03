@@ -62,26 +62,20 @@ export function WhyThisMatters() {
             <p className="pt-1 text-[13px] font-medium text-ink">
               Recommended:{" "}
               {isCritical
-                ? "call Margaret immediately. If unreachable, check on her or contact local emergency services."
-                : "check in with Margaret when convenient."}
+                ? "contact the selected person now. If there may be an emergency, contact local emergency services."
+                : "check in with the selected person."}
             </p>
           </div>
         ) : (
           <div className="space-y-2 text-sm leading-relaxed text-ink-soft">
             <p>
-              Margaret's activity and sleep have been{" "}
-              <span className="font-medium text-ink">gradually declining over the past 30 days</span>
-              {activity?.delta30dPct != null && (
-                <>
-                  {" "}(activity {Math.round(Math.abs(activity.delta30dPct) * 100)}% down
-                  {sleep?.delta30dPct != null && `, sleep ${Math.round(Math.abs(sleep.delta30dPct) * 100)}% down`})
-                </>
-              )}
-              . This is still within a safe range, but the trend is worth watching.
+              Current trends are shown against the selected person's baseline.
+              {activity?.delta30dPct != null && ` Activity changed ${Math.round(activity.delta30dPct * 100)}% over the available period.`}
+              {sleep?.delta30dPct != null && ` Sleep changed ${Math.round(sleep.delta30dPct * 100)}%.`}
             </p>
             <p className="text-[13px] text-ink-mute">
               LivePrevent compares everything to{" "}
-              <span className="font-medium text-ink-soft">Margaret's own baseline</span>, not
+              <span className="font-medium text-ink-soft">the selected person's own baseline</span>, not
               population averages — so small, personal changes surface early.
             </p>
           </div>

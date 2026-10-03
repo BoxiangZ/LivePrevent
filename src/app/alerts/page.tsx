@@ -54,7 +54,7 @@ export default function AlertsPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">Alerts</h1>
           <p className="mt-0.5 text-sm text-ink-mute">
-            Every deviation from Margaret&apos;s personal baseline, explained.
+            Deviations from the selected person's personal baseline, explained.
           </p>
         </div>
         <Card>
@@ -93,7 +93,7 @@ export default function AlertsPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">Alerts</h1>
         <p className="mt-0.5 text-sm text-ink-mute">
-          Every deviation from Margaret&apos;s personal baseline, explained.
+          Deviations from the selected person's personal baseline, explained.
         </p>
       </div>
 
@@ -132,7 +132,7 @@ export default function AlertsPage() {
         tab === "active" ? (
           <EmptyState
             title="Nothing needs attention right now"
-            sub="New deviations from Margaret's baseline will appear here."
+            sub="New deviations from the selected person's baseline will appear here."
           />
         ) : tab === "resolved" ? (
           <EmptyState title="No resolved alerts yet." />
@@ -151,7 +151,7 @@ export default function AlertsPage() {
         <Card>
           <CardHeader
             title="Notification log"
-            sub="Most recent messages sent to Margaret's care network."
+            sub="Most recent simulated messages sent to the care network."
           />
           <CardBody className="px-0 py-0">
             <ul className="divide-y divide-surface-line">

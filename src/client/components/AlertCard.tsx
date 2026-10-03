@@ -12,29 +12,11 @@ import type { DemoStateSnapshot } from "@/server/snapshot";
 import { RiskBadge } from "./RiskBadge";
 import { cn } from "@/client/cn";
 
-const WHY: Record<string, (devs: { metric: string; relativeChange: number }[]) => string> = {
-  possible_fall: () =>
-    "Camera detected a fall posture and the watch registered a sudden impact, with no recovery movement afterwards.",
-  prolonged_inactivity: () =>
-    "No meaningful movement for 2h 47m — about 3.1× her usual longest inactivity of ~55 minutes.",
-  heart_rate_deviation: (devs) => {
-    const hr = devs.find((d) => d.metric === "resting_hr");
-    const pct = hr ? Math.round(Math.abs(hr.relativeChange) * 100) : null;
-    return `Resting heart rate rose ${pct ? pct + "% " : ""}above her personal baseline of 64–73 bpm.`;
-  },
-  activity_drop: (devs) => {
-    const a = devs.find((d) => d.metric === "activity");
-    const pct = a ? Math.round(Math.abs(a.relativeChange) * 100) : null;
-    return `Activity dropped ${pct ? pct + "% " : ""}below her personal baseline.`;
-  },
-  device_data_gap: () => "One or more devices stopped reporting data.",
-};
-
 const ACTION: Record<string, string> = {
-  possible_fall: "Call Margaret immediately. If unreachable, check on her or contact local emergency services.",
-  prolonged_inactivity: "Check in with Margaret when convenient — a call or message is enough.",
-  heart_rate_deviation: "Check whether Margaret was exerting herself; if resting, consider a check-in.",
-  activity_drop: "Review her recent activity trend; a gentle check-in may help.",
+  possible_fall: "Contact the selected person now. If there may be an emergency, contact local emergency services.",
+  prolonged_inactivity: "Check in with the selected person.",
+  heart_rate_deviation: "Review the event and consider a check-in.",
+  activity_drop: "Review the recent activity trend and consider a check-in.",
   device_data_gap: "Check the device battery and network connection.",
 };
 
@@ -53,8 +35,7 @@ export function AlertCard({
   snapshot: DemoStateSnapshot;
 }) {
   const event = snapshot.events.find((e) => e.id === alert.eventId);
-  const deviations = snapshot.deviations[alert.eventId] ?? [];
-  const why = WHY[alert.eventType]?.(deviations) ?? "Deviation from personal baseline.";
+  const why = event?.signals.map((signal) => signal.description).slice(0, 2).join("; ") || "Review the available signals and baseline context.";
   const action = ACTION[alert.eventType] ?? "Review the details.";
   const notified = [...new Set(alert.notifications.map((n) => n.contactId))]
     .map((id) => snapshot.contacts.find((c) => c.id === id)?.name ?? "—")
@@ -86,7 +67,7 @@ export function AlertCard({
             <h3 className="text-sm font-semibold tracking-tight text-ink">{alert.eventLabel}</h3>
             <span className={cn("text-xs font-medium", status.className)}>· {status.text}</span>
           </div>
-          <div className="mt-0.5 text-xs text-ink-mute">{when} · Hong Kong time</div>
+          <div className="mt-0.5 text-xs text-ink-mute">{when} · {snapshot.subject.timeZone}</div>
         </div>
       </div>
 

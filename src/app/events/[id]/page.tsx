@@ -103,7 +103,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
               {EVENT_TITLE[event.type] ?? alert.eventLabel}
             </h1>
             <div className="mt-0.5 text-sm text-ink-mute">
-              {snapshot.subject.name} · {occurredLocal} · Hong Kong time
+              {occurredLocal} · {snapshot.subject.timeZone}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -208,7 +208,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
               {kimi ? (
                 <div className="space-y-4 text-sm leading-relaxed text-ink-soft">
                   <SummaryBlock label="What happened" text={kimi.eventSummary} />
-                  <SummaryBlock label="Vs her baseline" text={kimi.baselineComparison} />
+                  <SummaryBlock label="Vs personal baseline" text={kimi.baselineComparison} />
                   <SummaryBlock label="Related changes" text={kimi.relatedChanges} />
                   <div className="rounded-lg bg-brand-50 px-3.5 py-3">
                     <div className="text-xs font-semibold text-brand-700">Suggested next step</div>
@@ -226,7 +226,7 @@ export default function EventDetailPage({ params }: { params: Promise<{ id: stri
 
           {/* 基线偏离 + 趋势 */}
           <Card>
-            <CardHeader title="Personal baseline context" sub="Relative to Margaret's own normal, not population averages." />
+            <CardHeader title="Personal baseline context" sub="Relative to this person's normal pattern, not population averages." />
             <CardBody className="space-y-5">
               {deviations.length > 0 && (
                 <div className="divide-y divide-surface-line rounded-lg border border-surface-line">
@@ -456,7 +456,7 @@ function ResolveDialog({
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
-          placeholder="Optional note (e.g. called Margaret — she's fine)"
+          placeholder="Optional note about the follow-up"
           rows={2}
           className="mt-3 w-full rounded-lg border border-surface-line px-3 py-2 text-sm text-ink placeholder:text-ink-mute focus:border-brand-500 focus:outline-none"
         />

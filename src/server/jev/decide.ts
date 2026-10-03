@@ -114,6 +114,13 @@ export function decideLevel(input: JevInput, opts: DecideOptions): JevOutput {
     };
   }
 
+  if (input.eventType === "possible_fall" && input.fallPhase === "recovered") {
+    return { ...base, level: "watch", notify: true,
+      channels: watchEmail ? ["email"] : [],
+      ruleApplied: "rule:recovered — recovery movement observed after possible fall",
+      cappedReason: "Recovery movement observed; review the event as Watch" };
+  }
+
   // ── 规则表 — PRD §5.3 ──
   let level: RiskLevel;
   let ruleApplied: string;

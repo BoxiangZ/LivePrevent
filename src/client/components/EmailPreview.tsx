@@ -5,9 +5,10 @@
  * 用于事件详情页 / Alerts 页"View notification"，以及 demo 讲解步骤 7。
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { NotificationPreview } from "@/server/snapshot";
 import { cn } from "@/client/cn";
+import { useDemo } from "@/client/provider/DemoProvider";
 
 export function EmailPreviewModal({
   notification,
@@ -16,6 +17,15 @@ export function EmailPreviewModal({
   notification: NotificationPreview | null;
   onClose: () => void;
 }) {
+  const { selectedPersonId } = useDemo();
+  const [actionUrl, setActionUrl] = useState<string | null>(null);
+  const [previewBody, setPreviewBody] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notification?.secureLinkAvailable) { setActionUrl(null); setPreviewBody(null); return; }
+    fetch(`/api/demo/notifications/${encodeURIComponent(notification.id)}?personId=${encodeURIComponent(selectedPersonId)}`)
+      .then((r) => r.ok ? r.json() : null).then((body) => { setActionUrl(body?.actionUrl ?? null); setPreviewBody(body?.body ?? null); })
+      .catch(() => { setActionUrl(null); setPreviewBody(null); });
+  }, [notification?.id, notification?.secureLinkAvailable, selectedPersonId]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -77,13 +87,13 @@ export function EmailPreviewModal({
         {/* 邮件正文 */}
         <div className="max-h-[60vh] overflow-y-auto px-5 py-4">
           <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-ink-soft">
-            {notification.body}
+            {previewBody ?? notification.body}
           </pre>
 
-          {notification.secureLinkToken && (
+          {actionUrl && (
             <div className="mt-4">
               <a
-                href={`/ack/${notification.secureLinkToken}`}
+                href={actionUrl}
                 className={cn(
                   "inline-block rounded-lg px-4 py-2 text-sm font-semibold text-white",
                   isCritical ? "bg-critical hover:bg-critical/90" : "bg-brand-600 hover:bg-brand-700"

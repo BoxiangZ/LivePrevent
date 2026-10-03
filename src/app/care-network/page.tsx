@@ -1,6 +1,7 @@
 "use client";
 
 import { useDemo } from "@/client/provider/DemoProvider";
+import Link from "next/link";
 import type { DemoStateSnapshot } from "@/server/snapshot";
 import { Card, CardHeader, CardBody, Pill, Button } from "@/client/components/ui";
 import { cn } from "@/client/cn";
@@ -16,8 +17,7 @@ const CHANNEL_LABEL: Record<string, string> = {
 };
 
 function roleLine(order: number): string {
-  if (order === 1) return "Primary contact · Son";
-  if (order === 2) return "Neighbour · Hong Kong";
+  if (order === 1) return "Primary contact";
   return `Contact ${order}`;
 }
 
@@ -96,7 +96,7 @@ function ContactCard({ contact }: { contact: Contact }) {
           {contact.phoneVerified ? (
             <div className="flex items-center gap-1.5">
               <CheckIcon />
-              <span>Email verified</span>
+              <span>Phone verified (demo)</span>
             </div>
           ) : null}
           {contact.quietHours ? (
@@ -178,17 +178,17 @@ const SUBSCRIPTION_ROWS: SubscriptionRow[] = [
   {
     key: "heart_rate_deviation",
     label: "Heart rate deviation",
-    description: "Resting heart rate outside her normal range",
+    description: "Resting heart rate outside the personal range",
   },
   {
     key: "prolonged_inactivity",
     label: "Abnormal inactivity",
-    description: "No movement for longer than her usual pattern",
+    description: "No movement for longer than the usual pattern",
   },
   {
     key: "activity_drop",
     label: "Activity below baseline",
-    description: "Daily activity well below her personal baseline",
+    description: "Daily activity well below the personal baseline",
   },
   {
     key: "device_data_gap",
@@ -234,11 +234,7 @@ function SubscriptionsCard({ subscription }: { subscription: Subscription }) {
       <CardBody className="space-y-0 p-0">
         <ul className="divide-y divide-surface-line">
           {SUBSCRIPTION_ROWS.map((row) => {
-            const enabled = row.locked
-              ? true
-              : row.offByDefault
-              ? false
-              : Boolean(subscription[row.key as keyof Subscription]);
+            const enabled = row.locked ? true : Boolean(subscription[row.key as keyof Subscription]);
             return (
               <li
                 key={row.key}
@@ -275,7 +271,7 @@ function CareProviderCard() {
             Connect a care provider
           </div>
           <p className="mt-1 max-w-xl text-sm text-ink-soft">
-            Share Margaret&rsquo;s dashboard with a professional care team. They
+            Share this person's dashboard with a professional care team. They
             see the same baseline and alerts &mdash; nothing more.
           </p>
         </div>
@@ -301,7 +297,7 @@ export default function CareNetworkPage() {
             Care Network
           </h1>
           <p className="mt-0.5 text-sm text-ink-mute">
-            Who gets notified, in what order, when something changes for Margaret.
+            Who gets notified, in what order, when something changes for the selected person.
           </p>
         </div>
         <div className="h-32 animate-pulse rounded-xl bg-surface-soft" />
@@ -320,8 +316,9 @@ export default function CareNetworkPage() {
           Care Network
         </h1>
         <p className="mt-0.5 text-sm text-ink-mute">
-          Who gets notified, in what order, when something changes for Margaret.
+          Who gets notified, in what order, when something changes for the selected person.
         </p>
+        <Link href="/setup" className="mt-2 inline-block text-sm font-semibold text-brand-600">Edit contacts and subscriptions →</Link>
       </div>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

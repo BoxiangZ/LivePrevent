@@ -4,7 +4,7 @@
  * Critical 安全链接落地页 — 联系人从邮件/短信打开一次性链接，确认后进入事件详情。
  */
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDemo } from "@/client/provider/DemoProvider";
 import { Card, CardBody, Button } from "@/client/components/ui";
@@ -12,17 +12,25 @@ import { Card, CardBody, Button } from "@/client/components/ui";
 export default function AckPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
   const router = useRouter();
-  const { snapshot } = useDemo();
+  const { selectPerson } = useDemo();
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const notif = snapshot?.notifications.find((n) => n.secureLinkToken === token) ?? null;
+  const [link, setLink] = useState<{ personId: string; alertId: string; eventId: string; contactName: string; status: string } | null>(null);
+  useEffect(() => {
+    fetch(`/api/demo/ack/${encodeURIComponent(token)}`).then(async (res) => {
+      const body = await res.json();
+      if (!res.ok) throw new Error("This link is not valid.");
+      setLink(body); selectPerson(body.personId);
+      if (body.status !== "valid") setError(body.status === "expired" ? "This link has expired." : "This one-time link has already been used.");
+    }).catch((err) => setError(err.message));
+  }, [token, selectPerson]);
 
   const ack = async () => {
     setSubmitting(true);
     setError(null);
     try {
-      const res = await fetch(`/api/alerts/${notif?.alertId ?? "unknown"}/ack`, {
+      const res = await fetch(`/api/alerts/${link?.alertId ?? "unknown"}/ack`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
@@ -59,8 +67,8 @@ export default function AckPage({ params }: { params: Promise<{ token: string }>
               Critical alert — acknowledge
             </h1>
             <p className="mt-1 text-sm text-ink-mute">
-              {notif
-                ? `You are acknowledging as ${notif.contactName} via a one-time secure link (valid 30 minutes).`
+              {link
+                ? `You are acknowledging as ${link.contactName} via a one-time secure link (valid 30 minutes).`
                 : "Validating your one-time secure link…"}
             </p>
           </div>
@@ -70,12 +78,12 @@ export default function AckPage({ params }: { params: Promise<{ token: string }>
             <Button
               variant="danger"
               onClick={ack}
-              disabled={submitting || !notif}
+              disabled={submitting || !link || link.status !== "valid"}
               className="w-full"
             >
               {submitting
                 ? "Acknowledging…"
-                : `Acknowledge${notif ? ` as ${notif.contactName.split(" ")[0]}` : ""}`}
+                : `Acknowledge${link ? ` as ${link.contactName.split(" ")[0]}` : ""}`}
             </Button>
           )}
           <p className="text-left text-xs leading-relaxed text-ink-mute">

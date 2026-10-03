@@ -26,7 +26,7 @@ export interface NotificationPreview {
   sentAt: string;
   subject: string | null;
   body: string;
-  secureLinkToken: string | null; // 原始 token（仅 Demo 展示用，真实产品不出现在 API）
+  secureLinkAvailable: boolean;
 }
 
 export interface SnapshotAlert extends Alert {
@@ -69,11 +69,13 @@ export interface MetricSummary {
 export interface DemoStateSnapshot {
   nowMs: number;
   demoTimeScale: number;
+  people: Array<{ id: string; label: string; alias: string; overallLevel: string; openAlertCount: number }>;
+  dataStatus: { source: "simulated"; synthetic: true; asOf: string; stale: boolean };
   subject: {
     id: string;
-    /** 完整名（展示用，如 "Margaret Chan"） */
+    /** Full display name */
     name: string;
-    /** 短名/别名（通知里用，如 "Margaret"） */
+    /** Notification alias */
     alias: string;
     age: number | null;
     timeZone: string;
@@ -105,7 +107,7 @@ export interface DemoStateSnapshot {
   auditLog: AuditLogEntry[];
   subscription: AlertSubscriptionSettings;
   kimiSummaries: Record<string, KimiSummary>;
-  /** 机构视角：4 位老人（Margaret 为 live，其余 mock） */
+  /** Institutional preview rows; the selected person is live. */
   carePatients: CarePatientRow[];
   /** 活跃（open）的 Critical 警报，驱动全局红色横幅 */
   activeCriticalAlertId: string | null;
@@ -208,26 +210,26 @@ function interpretMetric(
   switch (metric) {
     case "activity":
       if (Math.abs(deltaPct) < 0.1)
-        return `Daily activity is close to her usual ${fmt(median, metric)} steps.`;
-      return `Activity is ${pct}% ${dir} her baseline today${
+        return `Daily activity is close to the usual ${fmt(median, metric)} steps.`;
+      return `Activity is ${pct}% ${dir} the personal baseline today${
         longPct !== null ? `, and trending ${longDir} ${longPct}% over 30 days` : ""
       }.`;
     case "sleep":
       if (Math.abs(deltaPct) < 0.08)
-        return `Sleep is near her usual ${fmt(median, metric)} hours.`;
-      return `Sleep is ${pct}% ${dir} her baseline${
+        return `Sleep is near the usual ${fmt(median, metric)} hours.`;
+      return `Sleep is ${pct}% ${dir} the personal baseline${
         longPct !== null ? `, with a ${longPct}% ${longDir}ward drift over 30 days` : ""
       }.`;
     case "mobility":
       if (Math.abs(deltaPct) < 0.08)
-        return `Walking speed is near her usual ${fmt(median, metric)} m/s.`;
-      return `Walking speed is ${pct}% ${dir} her baseline${
+        return `Walking speed is near the usual ${fmt(median, metric)} m/s.`;
+      return `Walking speed is ${pct}% ${dir} the personal baseline${
         longPct !== null ? `, trending ${longDir} ${longPct}% over 30 days` : ""
       }.`;
     case "resting_hr":
       if (Math.abs(deltaPct) < 0.08)
-        return `Resting heart rate is within her normal range of 64–73 bpm.`;
-      return `Resting heart rate is ${pct}% ${dir} her personal baseline (normal range 64–73 bpm).`;
+        return `Resting heart rate is near the personal baseline of ${fmt(median, metric)} bpm.`;
+      return `Resting heart rate is ${pct}% ${dir} the personal baseline of ${fmt(median, metric)} bpm.`;
   }
 }
 
@@ -245,8 +247,8 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
         channel: n.channel,
         sentAt: n.sentAt,
         subject: body?.subject ?? null,
-        body: body?.body ?? "",
-        secureLinkToken: body?.rawToken ?? null,
+        body: body?.rawToken ? (body.body ?? "").replaceAll(body.rawToken, "[secure link available in preview]") : body?.body ?? "",
+        secureLinkAvailable: Boolean(body?.rawToken),
       };
     })
   );
@@ -259,11 +261,13 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
   const nowIso = new Date(nowMs).toISOString();
   const overall = overallLevelOf(store.alerts);
 
-  // Margaret 行实时反映 demo 状态；其余 mock 保持静态
+  // The live preview row reflects the selected person's state.
   const carePatients = seedCarePatients(nowIso).map((p) =>
     p.live
       ? {
           ...p,
+          name: store.subject.displayName ?? store.subject.alias,
+          age: store.subject.age ?? p.age,
           level: overall,
           reason:
             overall === "stable"
@@ -296,6 +300,10 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
   return {
     nowMs,
     demoTimeScale: Number(process.env.NEXT_PUBLIC_DEMO_TIME_SCALE ?? 18),
+    people: [],
+    dataStatus: { source: "simulated", synthetic: true,
+      asOf: store.devices.map((d) => d.lastSyncAt).filter((v): v is string => !!v).sort().at(-1) ?? nowIso,
+      stale: store.devices.some((d) => !d.online || !d.lastSyncAt || nowMs - Date.parse(d.lastSyncAt) > 15 * 60_000) },
     subject: {
       id: store.subject.id,
       name: store.subject.displayName ?? store.subject.alias,

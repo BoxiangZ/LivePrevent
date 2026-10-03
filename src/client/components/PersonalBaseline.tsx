@@ -2,7 +2,7 @@
 
 /**
  * Personal Baseline 区 — LivePrevent 的核心差异化：
- * 我们不和"人群平均值"比，只和 Margaret 自己的历史比。
+ * Compare the selected person with their own history.
  */
 
 import { useDemo } from "@/client/provider/DemoProvider";
@@ -28,8 +28,8 @@ export function PersonalBaseline() {
         <div className="mb-4">
           <h3 className="text-sm font-semibold tracking-tight text-ink">Personal baseline</h3>
           <p className="mt-1 text-sm leading-relaxed text-ink-mute">
-            LivePrevent learns Margaret's own normal over weeks, then flags deviations from{" "}
-            <span className="font-medium text-ink-soft">her</span> baseline — not from generic
+            LivePrevent learns this person's normal pattern over weeks, then flags deviations from{" "}
+            <span className="font-medium text-ink-soft">their</span> baseline — not from generic
             population averages.
           </p>
         </div>

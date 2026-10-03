@@ -339,7 +339,7 @@ export function seedPastEvents(nowMs: number): SeededHistory {
     "prolonged_inactivity",
     "important",
     "false_positive",
-    "Called Margaret — she was resting after a poor night. Confirmed OK.",
+    "Called the selected person — resting after a poor night. Confirmed OK.",
     [
       { source: "watch_activity", description: "No meaningful movement for 2h 47m" },
       { source: "watch_hr", description: "Heart rate within baseline" },
@@ -367,7 +367,7 @@ export function seedPastEvents(nowMs: number): SeededHistory {
     "heart_rate_deviation",
     "important",
     "real_event_handled",
-    "Margaret had been climbing stairs — heart rate recovered within minutes.",
+    "The selected person had been climbing stairs — heart rate recovered within minutes.",
     [
       { source: "watch_hr", description: "Resting heart rate above personal baseline (64–73 bpm)" },
       { source: "watch_worn", description: "Watch worn at time of event" },

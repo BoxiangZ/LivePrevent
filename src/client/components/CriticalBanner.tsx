@@ -35,7 +35,7 @@ export function CriticalBanner() {
         </span>
         <div className="min-w-0 flex-1">
           <span className="font-semibold">
-            CRITICAL — {EVENT_LABEL[alert.eventType] ?? alert.eventType} · {snapshot.subject.alias}
+            CRITICAL — {EVENT_LABEL[alert.eventType] ?? alert.eventType}
           </span>
           <span className="ml-3 text-sm text-white/85">
             {alert.status === "acknowledged" ? (

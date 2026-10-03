@@ -10,12 +10,13 @@ export function NavLinks() {
   const { snapshot } = useDemo();
   const openCount =
     snapshot?.alerts.filter((a) => a.status === "open" || a.status === "acknowledged").length ?? 0;
-  const subjectId = snapshot?.subject.id ?? "sub_margaret";
+  const subjectId = snapshot?.subject.id;
 
   const NAV = [
     { href: "/overview", label: "Overview" },
     { href: "/alerts", label: "Alerts" },
-    { href: `/margaret/${subjectId}`, label: "Margaret" },
+    { href: "/demo-studio", label: "Demo I/O" },
+    { href: subjectId ? `/people/${subjectId}` : "/overview", label: "Person details" },
     { href: "/care-network", label: "Care Network" },
     { href: "/settings", label: "Settings" },
   ];
@@ -23,7 +24,7 @@ export function NavLinks() {
   return (
     <nav className="flex items-center gap-1 text-sm">
       {NAV.map((n) => {
-        const base = n.href.split("/").slice(0, 2).join("/"); // "/margaret/sub_x" → "/margaret"
+        const base = n.href.split("/").slice(0, 2).join("/");
         const active =
           pathname === n.href ||
           pathname.startsWith(n.href + "/") ||

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStore, appendAudit } from "@/server/store";
+import { findStoreByAlertId, appendAudit, saveStore } from "@/server/store";
 import { advance, hashToken } from "@/server/engine";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const store = getStore();
+  const store = findStoreByAlertId(id);
+  if (!store) return NextResponse.json({ ok: false, error: "alert_not_found" }, { status: 404 });
   const nowMs = Date.now();
   advance(store, nowMs);
   const nowIso = new Date(nowMs).toISOString();
@@ -18,7 +19,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const alert = store.alerts.find((a) => a.id === id);
   if (!alert) return NextResponse.json({ ok: false, error: "alert_not_found" }, { status: 404 });
 
-  const body = (await req.json().catch(() => ({}))) as { contactId?: string; token?: string };
+  const body = (await req.json().catch(() => ({}))) as { contactId?: string; token?: string; personId?: string };
+  if (body.personId && body.personId !== store.subject.id) {
+    return NextResponse.json({ ok: false, error: "person_mismatch" }, { status: 404 });
+  }
 
   let contactId = body.contactId ?? null;
 
@@ -61,6 +65,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     targetContactId: contactId,
     detail: { alertId: alert.id, viaToken: Boolean(body.token) },
   });
+
+  saveStore(store);
 
   return NextResponse.json({ ok: true, alertId: alert.id, eventId: alert.eventId });
 }

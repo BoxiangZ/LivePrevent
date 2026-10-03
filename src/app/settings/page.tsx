@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Settings — how LivePrevent watches over Margaret, and what it never does.
+ * Settings for the selected person.
  * Sections: Notifications / Care Network / Privacy / Devices / Subscription.
  */
 
@@ -124,7 +124,7 @@ export default function SettingsPage() {
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">Settings</h1>
           <p className="mt-0.5 text-sm text-ink-mute">
-            How LivePrevent watches over Margaret — and what it never does.
+            How monitoring works for the selected person.
           </p>
         </div>
         <Card>
@@ -149,8 +149,9 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-xl font-semibold tracking-tight text-ink">Settings</h1>
         <p className="mt-0.5 text-sm text-ink-mute">
-          How LivePrevent watches over Margaret — and what it never does.
+          How monitoring works for the selected person.
         </p>
+        <Link href="/setup" className="mt-2 inline-block text-sm font-semibold text-brand-600">Edit person, contacts and alert settings →</Link>
       </div>
 
       {/* Notifications */}
@@ -169,17 +170,17 @@ export default function SettingsPage() {
             />
             <SettingRow
               title="Heart rate deviation"
-              sub="When resting heart rate moves outside her normal range."
+              sub="When resting heart rate moves outside the personal range."
               on={sub.heart_rate_deviation}
             />
             <SettingRow
               title="Abnormal inactivity"
-              sub="Long stretches without movement during her usual active hours."
+              sub="Long stretches without movement during usual active hours."
               on={sub.prolonged_inactivity}
             />
             <SettingRow
               title="Activity below baseline"
-              sub="Daily activity meaningfully lower than her personal baseline."
+              sub="Daily activity meaningfully lower than the personal baseline."
               on={sub.activity_drop}
             />
             <SettingRow
@@ -202,17 +203,17 @@ export default function SettingsPage() {
               <SettingRow
                 title="Email"
                 sub="Detailed summaries with secure links to the dashboard."
-                on
+                on={Boolean(primaryContact?.channels.includes("email"))}
               />
               <SettingRow
                 title="SMS"
                 sub="Short, time-sensitive alerts."
-                on
+                on={Boolean(primaryContact?.channels.includes("sms"))}
               />
               <SettingRow
                 title="Push"
                 sub="Instant alerts in the LivePrevent app."
-                on
+                on={Boolean(primaryContact?.channels.includes("push"))}
               />
             </div>
             <div className="mt-3 flex items-start gap-2 rounded-lg bg-surface-soft px-3 py-2.5">
@@ -231,7 +232,7 @@ export default function SettingsPage() {
                 />
               </svg>
               <div className="text-xs text-ink-soft">
-                <span className="font-medium text-ink">Quiet hours 22:00 – 07:00.</span>{" "}
+                <span className="font-medium text-ink">{primaryContact?.quietHours ? `Quiet hours ${primaryContact.quietHours.start} – ${primaryContact.quietHours.end}.` : "No quiet hours configured."}</span>{" "}
                 Non-urgent updates are held overnight.{" "}
                 <span className="font-medium text-ink">
                   Critical alerts always come through.
@@ -293,7 +294,7 @@ export default function SettingsPage() {
             {[
               "Camera processing happens on the device — raw video is never uploaded or stored.",
               "Only events and trends leave the home — never images or audio.",
-              "Margaret can pause monitoring at any time, from any page.",
+              "Monitoring can be paused at any time.",
               "AI summaries are generated from de-identified structured facts only.",
             ].map((line) => (
               <li key={line} className="flex items-start gap-2.5">
@@ -310,7 +311,7 @@ export default function SettingsPage() {
               <div>
                 <div className="text-sm font-medium text-ink">Monitoring pause</div>
                 <div className="mt-0.5 text-xs text-ink-mute">
-                  When paused, no new events are generated.
+                  Inactivity alerts are suppressed while monitoring is paused.
                 </div>
               </div>
               <Button
@@ -323,7 +324,7 @@ export default function SettingsPage() {
             </div>
             {paused ? (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                Monitoring is paused — no new events are being generated.
+                Monitoring is paused — inactivity alerts are suppressed.
               </div>
             ) : null}
           </div>
@@ -334,7 +335,7 @@ export default function SettingsPage() {
       <Card>
         <CardHeader
           title="Devices"
-          sub="Sensors watching over Margaret's home."
+          sub="Devices contributing data for the selected person."
         />
         <CardBody>
           <div className="divide-y divide-surface-line">
@@ -348,7 +349,7 @@ export default function SettingsPage() {
                   <div className="mt-1 text-xs text-ink-mute">
                     {d.type === "camera"
                       ? `${d.coveredRooms.join(", ")} · On-device processing`
-                      : d.type === "watch"
+                      : d.type === "smartwatch"
                         ? d.batteryPct !== null
                           ? `Battery ${d.batteryPct}%${d.worn === false ? " · Not worn" : ""}`
                           : d.worn === false
@@ -392,10 +393,7 @@ export default function SettingsPage() {
                 <Pill tone="brand">Current plan</Pill>
               </div>
               <div className="mt-4 flex items-baseline gap-1.5">
-                <span className="text-2xl font-semibold tracking-tight text-ink tabular-nums">
-                  US$12
-                </span>
-                <span className="text-sm text-ink-mute">/ month</span>
+                <span className="text-sm font-medium text-ink-mute">Pricing to be confirmed</span>
               </div>
               <ul className="mt-4 space-y-2">
                 <PlanBullet>1 person monitored</PlanBullet>
@@ -416,10 +414,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <div className="mt-4 flex items-baseline gap-1.5">
-                <span className="text-2xl font-semibold tracking-tight text-ink tabular-nums">
-                  US$49
-                </span>
-                <span className="text-sm text-ink-mute">/ month</span>
+                <span className="text-sm font-medium text-ink-mute">Pricing to be confirmed</span>
               </div>
               <ul className="mt-4 space-y-2">
                 <PlanBullet>Unlimited people</PlanBullet>

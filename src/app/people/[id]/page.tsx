@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Margaret — personal page
+ * Selected person's detail page.
  * Health areas, personal baseline, devices, recent events.
  */
 
 import Link from "next/link";
-import { use } from "react";
+import { use, useEffect } from "react";
 import { useDemo } from "@/client/provider/DemoProvider";
 import { Card, CardBody, CardHeader, EmptyState, SectionTitle } from "@/client/components/ui";
 import { RiskBadge } from "@/client/components/RiskBadge";
@@ -56,13 +56,14 @@ function formatWhen(iso: string, timeZone: string): string {
   });
 }
 
-export default function MargaretPage({
+export default function PersonDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const { snapshot } = useDemo();
+  const { snapshot, selectedPersonId, selectPerson } = useDemo();
+  useEffect(() => { if (id !== selectedPersonId) selectPerson(id); }, [id, selectedPersonId, selectPerson]);
 
   if (!snapshot) {
     return (
@@ -92,11 +93,11 @@ export default function MargaretPage({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">
-            {snapshot.subject.name}
+            Person details
           </h1>
           <p className="mt-0.5 text-sm text-ink-mute">
-            {snapshot.subject.age !== null ? `${snapshot.subject.age} · ` : ""}
-            lives independently in Hong Kong
+            {snapshot.subject.age !== null ? `Age ${snapshot.subject.age} · ` : ""}
+            Time zone: {snapshot.subject.timeZone}
           </p>
         </div>
         <RiskBadge level={snapshot.overallLevel} />
@@ -106,7 +107,7 @@ export default function MargaretPage({
       <section>
         <SectionTitle
           title="Health areas"
-          sub="Today compared with her personal baseline."
+          sub="Today compared with this person's personal baseline."
         />
         <div className="grid gap-4 sm:grid-cols-2">
           {METRIC_ORDER.map((metric) => {
@@ -133,7 +134,7 @@ export default function MargaretPage({
         <Card>
           <CardHeader
             title="Devices"
-            sub="Live status of the devices keeping an eye on her."
+            sub="Live status of this person's devices."
           />
           <CardBody>
             <ul className="divide-y divide-surface-line">
@@ -152,7 +153,7 @@ export default function MargaretPage({
                       <span className="text-xs text-ink-mute">{d.type}</span>
                     </div>
                     <div className="mt-1 text-xs text-ink-mute">
-                      {d.type === "watch" && (
+                      {d.type === "smartwatch" && (
                         <>
                           {d.worn === null
                             ? "Worn state unknown"
@@ -178,7 +179,7 @@ export default function MargaretPage({
                           )}
                         </>
                       )}
-                      {d.type !== "watch" && d.type !== "camera" && (
+                      {d.type !== "smartwatch" && d.type !== "camera" && (
                         <>{d.online ? "Working normally" : "Offline"}</>
                       )}
                     </div>
@@ -209,7 +210,7 @@ export default function MargaretPage({
             {recentEvents.length === 0 ? (
               <EmptyState
                 title="No events yet"
-                sub="When something deviates from her baseline, it will appear here."
+                sub="When something deviates from this person's baseline, it will appear here."
               />
             ) : (
               <ul className="divide-y divide-surface-line">

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/server/store";
+import { findStoreByEventId, saveStore } from "@/server/store";
 import { callKimi } from "@/server/llm/kimi";
 
 export const dynamic = "force-dynamic";
@@ -9,12 +9,14 @@ export const dynamic = "force-dynamic";
  * 无 API Key / 超时 / 校验失败 → 模板降级，接口始终 200。
  */
 export async function POST(req: Request) {
-  const store = getStore();
   const body = (await req.json().catch(() => ({}))) as { eventId?: string };
   const eventId = body.eventId;
   if (!eventId) {
     return NextResponse.json({ ok: false, error: "eventId required" }, { status: 400 });
   }
+
+  const store = findStoreByEventId(eventId);
+  if (!store) return NextResponse.json({ ok: false, error: "event_not_found" }, { status: 404 });
 
   const facts = store.structuredFacts[eventId];
   if (!facts) {
@@ -27,5 +29,6 @@ export async function POST(req: Request) {
 
   const summary = await callKimi(eventId, facts);
   store.kimiSummaries[eventId] = summary;
+  saveStore(store);
   return NextResponse.json({ ok: true, summary });
 }

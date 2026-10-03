@@ -5,6 +5,8 @@ import { DemoProvider } from "@/client/provider/DemoProvider";
 import { CriticalBanner } from "@/client/components/CriticalBanner";
 import { DemoControls } from "@/client/components/DemoControls";
 import { NavLinks } from "@/client/components/NavLinks";
+import { PersonSelector } from "@/client/components/PersonSelector";
+import { ConnectionStatus } from "@/client/components/ConnectionStatus";
 
 export const metadata: Metadata = {
   title: "LivePrevent — Calm home monitoring for aging in place",
@@ -30,13 +32,14 @@ export default function RootLayout({
                 </span>
               </Link>
               <NavLinks />
-              <div className="ml-auto hidden items-center gap-2 text-[11px] text-ink-mute md:flex">
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-stable" />
-                Monitoring Margaret Chan · Hong Kong
+              <div className="ml-auto flex items-center gap-3">
+                <span className="rounded-full bg-brand-50 px-2 py-1 text-[11px] font-semibold text-brand-700">Simulated data</span>
+                <PersonSelector />
               </div>
             </div>
           </header>
           <CriticalBanner />
+          <ConnectionStatus />
           <main className="mx-auto max-w-6xl px-4 pb-24 pt-6 sm:px-6">{children}</main>
           <footer className="border-t border-surface-line bg-white py-6">
             <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 text-xs text-ink-mute sm:px-6">

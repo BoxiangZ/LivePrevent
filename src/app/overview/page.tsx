@@ -45,6 +45,12 @@ export default function OverviewPage() {
   return (
     <div className="space-y-8">
       <HeroStatus />
+      <FreshnessFooter />
+      <section className="rounded-xl border border-surface-line bg-white p-4">
+        <h2 className="text-sm font-semibold text-ink">Next action</h2>
+        <p className="mt-1 text-sm text-ink-soft">{activeAlerts.length ? "Review the latest alert and confirm the person's status." : "No urgent action. Continue monitoring or submit a synthetic observation."}</p>
+        <Link className="mt-2 inline-block text-sm font-semibold text-brand-600" href={activeAlerts.length ? `/events/${activeAlerts[0].eventId}` : "/demo-studio"}>{activeAlerts.length ? "Review alert →" : "Open demo input →"}</Link>
+      </section>
 
       {/* 恢复观察窗提示 — 两阶段判定的第一幕 */}
       {pendingFall?.recoveryWindowEndsAt && (
@@ -69,7 +75,7 @@ export default function OverviewPage() {
       <section>
         <SectionTitle
           title="Health areas"
-          sub="Today vs Margaret's personal baseline."
+          sub="Today compared with this person's personal baseline."
         />
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {METRIC_ORDER.map((m) => {
@@ -87,7 +93,6 @@ export default function OverviewPage() {
 
       <TrendsGrid />
 
-      <FreshnessFooter />
     </div>
   );
 }
@@ -166,7 +171,7 @@ function RecoveryWindowBanner({ endsAt }: { endsAt: string }) {
         <div className="min-w-0 flex-1 text-sm text-ink">
           <span className="font-semibold">Possible fall detected — observation window open.</span>{" "}
           <span className="text-ink-soft">
-            If Margaret gets up within{" "}
+            If recovery movement is detected within{" "}
             <span className="font-mono font-semibold tabular-nums text-watch">{secs}s</span>, this
             downgrades to a watch note. Otherwise it escalates to Critical.
           </span>
@@ -180,7 +185,11 @@ function FreshnessFooter() {
   const { snapshot } = useDemo();
   if (!snapshot) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-t border-surface-line pt-4 text-xs text-ink-mute">
+    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-surface-line bg-white px-4 py-3 text-xs text-ink-mute">
+      <strong className={snapshot.dataStatus.stale ? "text-critical" : "text-stable"}>
+        Data {snapshot.dataStatus.stale ? "stale" : "fresh"}
+      </strong>
+      <span>Last sync {new Date(snapshot.dataStatus.asOf).toLocaleString("en-GB", { timeZone: snapshot.subject.timeZone })}</span>
       {snapshot.deviceDetails.map((d) => (
         <span key={d.id} className="inline-flex items-center gap-1.5">
           <span

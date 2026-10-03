@@ -173,8 +173,8 @@ export function startEscalation(store: DemoStore, alert: Alert, nowMs: number): 
 function sendImportantInitialNotifications(store: DemoStore, alert: Alert, nowIso: string): void {
   if (alert.level !== "important" || alert.status !== "open") return;
   if (alert.notifications.length > 0) return; // 只发一次
-  // 跌倒候选（恢复观察窗内）暂不发 — 升级 Critical 后由升级链统一通知，避免重复
-  if (alert.eventType === "possible_fall") return;
+  // Fall candidates wait for the recovery window before notification.
+  if (alert.eventType === "possible_fall" && store.events.some((e) => e.id === alert.eventId && e.fallPhase === "candidate")) return;
   const sorted = [...store.contacts].sort((a, b) => a.escalationOrder - b.escalationOrder);
   const primary = sorted[0];
   if (!primary) return;
@@ -217,23 +217,26 @@ export function advance(store: DemoStore, nowMs: number): string[] {
         signals: event.signals,
         fallPhase: "unrecovered",
         independentChannelCount: event.independentChannelCount,
-        insufficientData: false,
+        insufficientData: store.decisionInsufficientData?.[event.id] ?? false,
         baselineLearned: true,
         deviceOfflineSuppressed: false,
       },
       {
-        probabilities: demoFallProbabilities(),
+        probabilities: store.decisionProbabilities?.[event.id] ?? demoFallProbabilities(),
         structuredFacts: store.structuredFacts[event.id],
         monitoringPaused: store.subject.monitoringPaused,
         watchEmailEnabled: store.subscription.watchEmailEnabled,
       }
     );
 
-    if (out.level === "critical" && alert.level !== "critical") {
-      alert.level = "critical";
-      alert.levelHistory.push({ level: "critical", at: nowIso, trigger: "recovery_window_no_activity" });
-      transitions.push(`alert ${alert.id}: upgraded to Critical, escalation started`);
+    if (out.level !== alert.level) {
+      alert.level = out.level;
+      alert.levelHistory.push({ level: out.level, at: nowIso, trigger: "recovery_window_no_activity" });
+      transitions.push(`alert ${alert.id}: recovery window decision ${out.level}`);
+    }
+    if (out.level === "critical") {
       startEscalation(store, alert, nowMs);
+      transitions.push(`alert ${alert.id}: escalation started`);
     }
   }
 

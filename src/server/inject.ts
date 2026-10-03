@@ -8,7 +8,7 @@
 import { DEMO_RECOVERY_WINDOW_SEC } from "@/shared/constants";
 import { decideLevel, demoFallProbabilities } from "@/server/jev/decide";
 import { buildStructuredFacts } from "@/server/jev/facts";
-import { fallDeviations, SUBJECT_ID } from "@/server/data/seed";
+import { fallDeviations } from "@/server/data/seed";
 import type { DemoStore } from "@/server/store";
 import { appendAudit, nextId } from "@/server/store";
 import type { MonitoredEvent } from "@/shared/types/event";
@@ -47,7 +47,7 @@ export function injectFall(store: DemoStore, nowMs: number): InjectResult {
   // 支持信号：摄像头姿态 + 手表冲击 + 心率偏离（2 个独立通道）— PRD §5.3 示例
   const event: MonitoredEvent = {
     id: nextId(store, "evt"),
-    subjectId: SUBJECT_ID,
+    subjectId: store.subject.id,
     type: "possible_fall",
     trendMetric: null,
     occurredAt: nowIso,
@@ -86,6 +86,8 @@ export function injectFall(store: DemoStore, nowMs: number): InjectResult {
     trendSynthetic: true, // 合成数据标注 — PRD §19
   });
   store.structuredFacts[event.id] = facts;
+  store.decisionProbabilities ??= {};
+  store.decisionProbabilities[event.id] = demoFallProbabilities();
   store.deviations[event.id] = deviations;
 
   // JEV 决策：p(critical)=0.94 且 2 独立信号，但观察窗未结束 → 封顶 Important — PRD §5.3 行 2
@@ -111,7 +113,7 @@ export function injectFall(store: DemoStore, nowMs: number): InjectResult {
 
   const alert: Alert = {
     id: nextId(store, "al"),
-    subjectId: SUBJECT_ID,
+    subjectId: store.subject.id,
     eventId: event.id,
     eventType: event.type,
     level: out.level,
@@ -120,7 +122,7 @@ export function injectFall(store: DemoStore, nowMs: number): InjectResult {
     levelHistory: [{ level: out.level, at: nowIso, trigger: "initial_detection" }],
     notifications: [],
     escalation: {
-      subjectId: SUBJECT_ID,
+      subjectId: store.subject.id,
       alertId: "",
       currentStage: null,
       nextStageAt: null,
@@ -171,14 +173,14 @@ export function injectInactivity(store: DemoStore, nowMs: number): InjectResult 
 
   const event: MonitoredEvent = {
     id: nextId(store, "evt"),
-    subjectId: SUBJECT_ID,
+    subjectId: store.subject.id,
     type: "prolonged_inactivity",
     trendMetric: null,
     occurredAt: nowIso,
     signals: [
       {
         source: "watch_activity",
-        description: "No meaningful movement for 2h 47m (3.1× her usual ~55 min maximum)",
+        description: "No meaningful movement for 2h 47m (3.1× the usual ~55 min maximum)",
       },
       { source: "camera_motion", description: "Camera motion in living room very low", withinCoverage: true },
       { source: "watch_hr", description: "Heart rate within personal baseline (64–73 bpm)" },
@@ -228,7 +230,7 @@ export function injectInactivity(store: DemoStore, nowMs: number): InjectResult 
 
   const alert: Alert = {
     id: nextId(store, "al"),
-    subjectId: SUBJECT_ID,
+    subjectId: store.subject.id,
     eventId: event.id,
     eventType: event.type,
     level: out.level,
@@ -237,7 +239,7 @@ export function injectInactivity(store: DemoStore, nowMs: number): InjectResult 
     levelHistory: [{ level: out.level, at: nowIso, trigger: "initial_detection" }],
     notifications: [],
     escalation: {
-      subjectId: SUBJECT_ID,
+      subjectId: store.subject.id,
       alertId: "",
       currentStage: null,
       nextStageAt: null,

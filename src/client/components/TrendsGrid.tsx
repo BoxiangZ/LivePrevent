@@ -30,7 +30,7 @@ export function TrendsGrid() {
         <div>
           <h2 className="text-base font-semibold tracking-tight text-ink">Long-term trends</h2>
           <p className="mt-0.5 text-sm text-ink-mute">
-            Compared against Margaret's personal baseline.
+            Compared against the selected person's personal baseline.
           </p>
         </div>
         <div className="flex rounded-lg border border-surface-line bg-surface p-0.5">

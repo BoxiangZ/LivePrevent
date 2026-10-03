@@ -2,7 +2,7 @@
 
 /**
  * Overview 顶部 hero 状态条 — 一眼读懂"现在是否安全"。
- * - stable: "Margaret is stable — No urgent intervention required."
+ * - stable: clear current status for the selected person.
  * - watch/important: 状态 + 需要 review
  * - critical: 显著红色 + 当前事件摘要 + 倒计时
  */
@@ -21,8 +21,8 @@ const LEVEL_BG: Record<RiskLevel, string> = {
 
 const LEVEL_TEXT: Record<RiskLevel, { title: string; sub: string; dark: boolean }> = {
   stable: { title: "is stable", sub: "No urgent intervention required.", dark: false },
-  watch: { title: "is being watched", sub: "A small change from her usual pattern — monitoring.", dark: false },
-  important: { title: "needs attention", sub: "A meaningful deviation from her baseline. Review recommended.", dark: false },
+  watch: { title: "is being watched", sub: "A small change from the usual pattern — monitoring.", dark: false },
+  important: { title: "needs attention", sub: "A meaningful deviation from the personal baseline. Review recommended.", dark: false },
   critical: { title: "may need help now", sub: "Immediate attention recommended.", dark: true },
 };
 
@@ -31,7 +31,6 @@ export function HeroStatus() {
   if (!snapshot) return <div className="h-32 animate-pulse rounded-2xl bg-surface-soft" />;
 
   const level = snapshot.overallLevel;
-  const firstName = snapshot.subject.alias;
   const meta = LEVEL_TEXT[level];
 
   const criticalAlert = snapshot.activeCriticalAlertId
@@ -53,10 +52,10 @@ export function HeroStatus() {
       <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
         <div className="min-w-0 flex-1">
           <div className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", meta.dark ? "text-white/70" : "text-ink-mute")}>
-            Current status · Live
+            Current status · Simulated data
           </div>
           <h1 className={cn("mt-1.5 text-3xl font-semibold tracking-tight sm:text-4xl", meta.dark ? "text-white" : "text-ink")}>
-            {firstName} {meta.title}
+            {level === "stable" ? "Stable" : level === "watch" ? "Watch" : level === "important" ? "Needs attention" : "May need help now"}
           </h1>
           <p className={cn("mt-1.5 text-sm sm:text-base", meta.dark ? "text-white/85" : "text-ink-soft")}>
             {meta.sub}

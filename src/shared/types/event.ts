@@ -4,6 +4,7 @@
 
 /** 实时事件类别 — PRD §4.1 */
 export const EVENT_TYPES = [
+  "general_check", // 用户主动提交的一次观察
   "possible_fall", // 疑似跌倒
   "prolonged_inactivity", // 长时间无活动
   "heart_rate_deviation", // 心率偏离

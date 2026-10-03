@@ -174,7 +174,7 @@ export default function PersonDetailPage({
                           )}
                           {d.cameraMode === "edge_only" && (
                             <span className="ml-2">
-                              On-device processing — no video stored
+                              Device observations · optional assessment clips managed separately
                             </span>
                           )}
                         </>

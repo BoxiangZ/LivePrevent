@@ -53,11 +53,11 @@ export function CriticalBanner() {
         </div>
         {alert.status === "open" && primary && (
           <button
-            onClick={() => ackAlert(alert.id, primary.id)}
+            onClick={() => { void ackAlert(alert.id).catch(() => undefined); }}
             disabled={busy}
             className="rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-critical hover:bg-white/90 disabled:opacity-50"
           >
-            Acknowledge as {primary.name.split(" ")[0]}
+            I'm responding
           </button>
         )}
         <Link

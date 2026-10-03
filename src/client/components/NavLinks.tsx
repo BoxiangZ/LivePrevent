@@ -7,17 +7,17 @@ import { cn } from "@/client/cn";
 
 export function NavLinks() {
   const pathname = usePathname();
-  const { snapshot, selectedPersonId } = useDemo();
+  const { snapshot } = useDemo();
   const openCount =
-    snapshot?.alerts.filter((a) => a.status === "open" || a.status === "acknowledged").length ?? 0;
-  const subjectId = snapshot?.subject.id ?? selectedPersonId;
+    snapshot?.alerts.filter(
+      (a) => a.status === "open" || a.status === "acknowledged",
+    ).length ?? 0;
+  if (pathname === "/login") return null;
 
   const NAV = [
     { id: "overview", href: "/overview", label: "Overview" },
     { id: "alerts", href: "/alerts", label: "Alerts" },
-    { id: "demo", href: "/demo-studio", label: "Demo I/O" },
-    { id: "person", href: `/people/${subjectId}`, label: "Person details" },
-    { id: "care", href: "/care-network", label: "Care Network" },
+    { id: "assessments", href: "/assessments", label: "Assessments" },
     { id: "settings", href: "/settings", label: "Settings" },
   ];
 
@@ -28,14 +28,17 @@ export function NavLinks() {
         const active =
           pathname === n.href ||
           pathname.startsWith(n.href + "/") ||
-          (base !== n.href && (pathname === base || pathname.startsWith(base + "/")));
+          (base !== n.href &&
+            (pathname === base || pathname.startsWith(base + "/")));
         return (
           <Link
             key={n.id}
             href={n.href}
             className={cn(
               "relative rounded-lg px-3 py-1.5 font-medium transition-colors",
-              active ? "bg-brand-50 text-brand-700" : "text-ink-soft hover:bg-surface-soft hover:text-ink"
+              active
+                ? "bg-brand-50 text-brand-700"
+                : "text-ink-soft hover:bg-surface-soft hover:text-ink",
             )}
           >
             {n.label}

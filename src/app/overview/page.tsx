@@ -1,217 +1,154 @@
 "use client";
-
-/**
- * Overview — demo 的开场页。
- * 自上而下：hero 状态 → 异常时的"Why this matters" → 四个健康域 →
- * Personal Baseline → 7/30/90 天纵向趋势 → 数据新鲜度。
- */
-
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { z } from "zod";
+import { api } from "@/client/api";
+import { overviewSchema } from "@/shared/contracts/assessment";
 import { useDemo } from "@/client/provider/DemoProvider";
-import { HeroStatus } from "@/client/components/HeroStatus";
-import { WhyThisMatters } from "@/client/components/WhyThisMatters";
-import { PersonalBaseline } from "@/client/components/PersonalBaseline";
 import { TrendsGrid } from "@/client/components/TrendsGrid";
-import { AlertCard } from "@/client/components/AlertCard";
-import { Card, SectionTitle } from "@/client/components/ui";
-import { cn } from "@/client/cn";
-import type { TrendMetric } from "@/shared/types/event";
-
-const METRIC_ORDER: TrendMetric[] = ["activity", "resting_hr", "sleep", "mobility"];
-
-export default function OverviewPage() {
-  const { snapshot } = useDemo();
-
-  if (!snapshot) {
+const titles = {
+  stable: "Stable",
+  watch: "Keep an eye on this",
+  important: "A check-in is recommended",
+  critical: "May need help now",
+  unknown: "Unable to verify current condition",
+  paused: "Monitoring is paused",
+};
+export default function Overview() {
+  const { selectedPersonId, snapshot, error: connectionError } = useDemo();
+  const [data, setData] = useState<z.infer<typeof overviewSchema> | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setData(null);
+    const load = () =>
+      api(`people/${selectedPersonId}/overview`, overviewSchema)
+        .then((v) => {
+          if (active) {
+            setData(v);
+            setError("");
+          }
+        })
+        .catch((e) => {
+          if (active) setError(e.message);
+        });
+    load();
+    const timer = setInterval(load, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [selectedPersonId]);
+  if (!data)
     return (
-      <div className="space-y-6">
-        <div className="h-36 animate-pulse rounded-2xl bg-surface-line/60" />
-        <div className="grid gap-4 sm:grid-cols-2">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-32 animate-pulse rounded-xl bg-surface-line/60" />
-          ))}
-        </div>
+      <div className="panel" role="status">
+        {error || "Loading current status…"}
       </div>
     );
-  }
-
-  const activeAlerts = snapshot.alerts.filter(
-    (a) => a.status === "open" || a.status === "acknowledged"
-  );
-  const pendingFall = snapshot.pendingFallEventId
-    ? snapshot.events.find((e) => e.id === snapshot.pendingFallEventId)
-    : null;
-
+  const unknown = Boolean(error || connectionError);
+  const status = unknown ? "unknown" : data.displayStatus;
   return (
-    <div className="space-y-8">
-      <HeroStatus />
-      <FreshnessFooter />
-      <section className="rounded-xl border border-surface-line bg-white p-4">
-        <h2 className="text-sm font-semibold text-ink">Next action</h2>
-        <p className="mt-1 text-sm text-ink-soft">{activeAlerts.length ? "Review the latest alert and confirm the person's status." : "No urgent action. Continue monitoring or submit a synthetic observation."}</p>
-        <Link className="mt-2 inline-block text-sm font-semibold text-brand-600" href={activeAlerts.length ? `/events/${activeAlerts[0].eventId}` : "/demo-studio"}>{activeAlerts.length ? "Review alert →" : "Open demo input →"}</Link>
-      </section>
-
-      {/* 恢复观察窗提示 — 两阶段判定的第一幕 */}
-      {pendingFall?.recoveryWindowEndsAt && (
-        <RecoveryWindowBanner endsAt={pendingFall.recoveryWindowEndsAt} />
-      )}
-
-      {/* 有活动警报时优先展示 Why this matters */}
-      {activeAlerts.length > 0 && (
-        <div className="grid gap-4 lg:grid-cols-5">
-          <div className="lg:col-span-3">
-            <WhyThisMatters />
-          </div>
-          <div className="space-y-3 lg:col-span-2">
-            {activeAlerts.slice(0, 2).map((a) => (
-              <AlertCard key={a.id} alert={a} snapshot={snapshot} />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* 四个健康域 */}
-      <section>
-        <SectionTitle
-          title="Health areas"
-          sub="Today compared with this person's personal baseline."
-        />
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {METRIC_ORDER.map((m) => {
-            const s = snapshot.metricSummaries.find((x) => x.metric === m);
-            if (!s) return null;
-            return <MetricTile key={m} summary={s} />;
-          })}
-        </div>
-      </section>
-
-      {/* 稳定时把 WhyThisMatters 放到趋势前面（有警报时已在上文展示） */}
-      {activeAlerts.length === 0 && <WhyThisMatters />}
-
-      <PersonalBaseline />
-
-      <TrendsGrid />
-
-    </div>
-  );
-}
-
-function MetricTile({
-  summary: s,
-}: {
-  summary: import("@/server/snapshot").MetricSummary;
-}) {
-  const delta = s.deltaPct;
-  const abs = delta === null ? 0 : Math.abs(delta);
-  const tone =
-    delta === null
-      ? "muted"
-      : s.metric === "resting_hr"
-        ? abs < 0.08
-          ? "good"
-          : abs < 0.15
-            ? "watch"
-            : "bad"
-        : abs < 0.1
-          ? "good"
-          : abs < 0.2
-            ? "watch"
-            : "bad";
-
-  const toneText: Record<string, string> = {
-    good: "text-stable",
-    watch: "text-watch",
-    bad: "text-critical",
-    muted: "text-ink-mute",
-  };
-  const toneBg: Record<string, string> = {
-    good: "bg-stable/10",
-    watch: "bg-watch/10",
-    bad: "bg-critical/10",
-    muted: "bg-surface-soft",
-  };
-
-  return (
-    <Card className="p-4">
+    <div className="space-y-5">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-ink-mute">{s.label}</span>
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums",
-            toneBg[tone],
-            toneText[tone]
-          )}
-        >
-          {delta === null ? "—" : `${delta > 0 ? "+" : ""}${Math.round(delta * 100)}%`}
-        </span>
-      </div>
-      <div className="mt-2 flex items-baseline gap-1">
-        <span className="text-[26px] font-semibold tabular-nums tracking-tight text-ink">
-          {s.current !== null ? formatVal(s.current, s.metric) : "—"}
-        </span>
-        <span className="text-sm text-ink-mute">{s.unit}</span>
-      </div>
-      <p className="mt-2 text-[13px] leading-snug text-ink-soft">{s.interpretation}</p>
-    </Card>
-  );
-}
-
-function RecoveryWindowBanner({ endsAt }: { endsAt: string }) {
-  const { msUntil } = useDemo();
-  const ms = msUntil(endsAt);
-  const secs = ms !== null ? Math.max(0, Math.ceil(ms / 1000)) : 0;
-  return (
-    <Card tone="watch" className="border-watch/40">
-      <div role="status" aria-live="polite" className="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
-        <span className="relative flex h-2.5 w-2.5">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-watch opacity-75" />
-          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-watch" />
-        </span>
-        <div className="min-w-0 flex-1 text-sm text-ink">
-          <span className="font-semibold">Possible fall detected — observation window open.</span>{" "}
-          <span className="text-ink-soft">
-            If recovery movement is detected within{" "}
-            <span className="font-mono font-semibold tabular-nums text-watch">{secs}s</span>, this
-            downgrades to a watch note. Otherwise it escalates to Critical.
-          </span>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-function FreshnessFooter() {
-  const { snapshot } = useDemo();
-  if (!snapshot) return null;
-  return (
-    <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 rounded-xl border border-surface-line bg-white px-4 py-3 text-xs text-ink-mute">
-      <strong className={snapshot.dataStatus.stale ? "text-critical" : "text-stable"}>
-        Data {snapshot.dataStatus.stale ? "stale" : "fresh"}
-      </strong>
-      <span>Last sync {new Date(snapshot.dataStatus.asOf).toLocaleString("en-GB", { timeZone: snapshot.subject.timeZone })}</span>
-      {snapshot.deviceDetails.map((d) => (
-        <span key={d.id} className="inline-flex items-center gap-1.5">
-          <span
-            className={cn("h-1.5 w-1.5 rounded-full", d.online ? "bg-stable" : "bg-critical")}
-          />
-          {d.label}
-          {d.type === "smartwatch" && d.worn !== null && (d.worn ? " · worn" : " · not worn")}
-          {d.batteryPct !== null && ` · ${d.batteryPct}%`}
-          {d.cameraMode === "edge_only" && " · on-device processing"}
-        </span>
-      ))}
-      <span className="ml-auto">
-        <Link href="/settings" className="text-brand-600 hover:underline">
-          Privacy &amp; devices →
+        <h1 className="text-2xl font-semibold">Overview</h1>
+        <Link className="btn-secondary" href="/assessments/new">
+          Add information
         </Link>
-      </span>
+      </div>
+      <section
+        className={`panel border-l-4 ${status === "critical" ? "border-l-critical" : status === "stable" ? "border-l-stable" : "border-l-watch"}`}
+      >
+        <p className="eyebrow">Current status</p>
+        <h2 className="mt-3 text-3xl font-semibold">{titles[status]}</h2>
+        <p className="mt-3 text-ink-soft">
+          {unknown
+            ? "Connection interrupted. Refresh to verify the current condition."
+            : data.statusReason}
+        </p>
+        <p className="mt-4 text-xs text-ink-mute">
+          {data.sourceLabel} ·{" "}
+          {data.evaluatedAt
+            ? `Last reliable device information: ${new Date(data.evaluatedAt).toLocaleString()}`
+            : "No device information"}
+        </p>
+      </section>
+      <section className="panel">
+        <h2 className="font-semibold">Data freshness</h2>
+        <div className="mt-4 grid grid-cols-2 gap-4">
+          {data.dataFreshness.devices.map((d) => (
+            <div key={d.id} className="rounded-xl bg-surface-soft p-4">
+              <div className="flex justify-between">
+                <strong className="text-sm">{d.label}</strong>
+                <span className="text-xs">
+                  {d.online ? "Connected" : "Offline"}
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-ink-soft">{d.reason}</p>
+              <p className="mt-1 text-xs text-ink-mute">
+                {d.lastSyncAt
+                  ? new Date(d.lastSyncAt).toLocaleString()
+                  : "No sync recorded"}
+                {d.batteryPct !== null ? ` · ${d.batteryPct}% battery` : ""}
+                {d.worn !== null ? (d.worn ? " · Worn" : " · Not worn") : ""}
+              </p>
+            </div>
+          ))}
+        </div>
+        {!data.dataFreshness.devices.length && <p>No devices configured.</p>}
+      </section>
+      <section className="panel flex items-center justify-between gap-6">
+        <div>
+          <h2 className="font-semibold">Next action</h2>
+          <p className="mt-2 text-sm text-ink-soft">
+            {data.primaryAction.description}
+          </p>
+        </div>
+        <Link className="btn-primary shrink-0" href={data.primaryAction.href}>
+          {data.primaryAction.label}
+        </Link>
+      </section>
+      {data.learningProgress && (
+        <p className="text-sm text-ink-soft">
+          Learning baseline · day {data.learningProgress.currentDay} /{" "}
+          {data.learningProgress.totalDays}
+        </p>
+      )}
+      <section className="panel">
+        <div className="flex justify-between">
+          <h2 className="font-semibold">Recent observations</h2>
+          <Link
+            href={`/people/${selectedPersonId}`}
+            className="text-sm text-brand-600"
+          >
+            View history →
+          </Link>
+        </div>
+        {snapshot?.events.slice(0, 3).map((e) => (
+          <Link
+            key={e.id}
+            href={`/events/${e.id}`}
+            className="mt-3 block border-t border-surface-line pt-3 text-sm"
+          >
+            <span className="capitalize">{e.type.replaceAll("_", " ")}</span>
+            <span className="float-right text-ink-mute">
+              {new Date(e.occurredAt).toLocaleString()}
+            </span>
+          </Link>
+        ))}
+        {!snapshot?.events.length && (
+          <p className="mt-3 text-sm text-ink-mute">
+            No observations yet. Add information to begin a review.
+          </p>
+        )}
+      </section>
+      <details className="panel">
+        <summary className="cursor-pointer font-semibold">
+          Health trends and personal baseline
+        </summary>
+        <div className="mt-6">
+          <TrendsGrid />
+        </div>
+      </details>
     </div>
   );
-}
-
-function formatVal(v: number, metric: TrendMetric): string {
-  if (metric === "activity") return Math.round(v).toLocaleString("en-US");
-  if (metric === "resting_hr") return String(Math.round(v));
-  return v.toFixed(1);
 }

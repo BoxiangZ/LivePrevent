@@ -3,7 +3,6 @@ import Link from "next/link";
 import "./globals.css";
 import { DemoProvider } from "@/client/provider/DemoProvider";
 import { CriticalBanner } from "@/client/components/CriticalBanner";
-import { DemoControls } from "@/client/components/DemoControls";
 import { NavLinks } from "@/client/components/NavLinks";
 import { PersonSelector } from "@/client/components/PersonSelector";
 import { ConnectionStatus } from "@/client/components/ConnectionStatus";
@@ -33,7 +32,6 @@ export default function RootLayout({
               </Link>
               <NavLinks />
               <div className="ml-auto flex items-center gap-3">
-                <span className="rounded-full bg-brand-50 px-2 py-1 text-[11px] font-semibold text-brand-700">Simulated data</span>
                 <PersonSelector />
               </div>
             </div>
@@ -47,10 +45,10 @@ export default function RootLayout({
                 LivePrevent is an assistive monitoring tool — it does not provide medical diagnosis
                 and does not replace emergency services.
               </span>
-              <span>Privacy-first: behaviour, not video.</span>
+              <span>Your information, shared only for the selected review.</span>
             </div>
           </footer>
-          <DemoControls />
+
         </DemoProvider>
       </body>
     </html>

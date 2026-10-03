@@ -1,3 +1,4 @@
+import { legacyAccess, session } from "@/server/v3/auth";
 import { NextResponse } from "next/server";
 import { findStoreByAlertId, appendAudit, saveStore } from "@/server/store";
 import { advance, hashToken } from "@/server/engine";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
  * 支持一次性 token 路径（Critical 安全链接）— PRD §7.1
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await legacyAccess(req); if (denied) return denied;
   const { id } = await params;
   const store = findStoreByAlertId(id);
   if (!store) return NextResponse.json({ ok: false, error: "alert_not_found" }, { status: 404 });
@@ -24,7 +26,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ ok: false, error: "person_mismatch" }, { status: 404 });
   }
 
-  let contactId = body.contactId ?? null;
+  const identity = session(req, store.subject.id);
+  const self = store.contacts.find(c => c.userId === identity.userId);
+  let contactId = self?.id ?? null;
 
   // token 路径：校验一次性、未过期 — PRD §7.1
   if (body.token) {
@@ -40,6 +44,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     if (Date.parse(rec.expiresAt) < nowMs) {
       return NextResponse.json({ ok: false, error: "token_expired" }, { status: 403 });
     }
+    if (rec.contactId !== self?.id) return NextResponse.json({ error: "This link belongs to another contact." }, { status: 403 });
     rec.consumedAt = nowIso;
     rec.sessionVerified = true; // Demo 简化：会话验证略；真实产品此处要求登录态
     contactId = rec.contactId;

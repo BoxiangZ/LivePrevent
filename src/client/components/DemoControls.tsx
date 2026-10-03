@@ -48,11 +48,11 @@ export function DemoControls() {
               active={!!inactivityActive}
             />
             <DemoButton
-              onClick={resetDemo}
+              onClick={() => { if (confirm("Reset sample events for this person? Contacts and settings are kept.")) void resetDemo().catch(() => undefined); }}
               disabled={busy}
               tone="neutral"
               label="Reset scenario"
-              hint="Restore the stable state"
+              hint="Reset events; keep contacts and settings"
             />
           </div>
           <div className="border-t border-surface-line bg-surface-soft px-4 py-2 text-[10px] text-ink-mute">

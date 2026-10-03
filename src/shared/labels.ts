@@ -6,6 +6,7 @@ import type { EventType, SignalSource } from "@/shared/types/event";
 
 /** 事件类别标签 — 通知模板 Category 字段 */
 export const EVENT_TYPE_LABELS: Record<EventType, string> = {
+  general_check: "General check",
   possible_fall: "Possible fall",
   prolonged_inactivity: "Abnormal inactivity",
   heart_rate_deviation: "Heart rate deviation",

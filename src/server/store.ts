@@ -63,7 +63,7 @@ export interface DemoStore {
 
 export const DEFAULT_PERSON_ID = SUBJECT_ID;
 const SECOND_PERSON_ID = "sub_evelyn";
-const DB_PATH = join(process.cwd(), "mockdata", "liveprevent.sqlite");
+const DB_PATH = join(process.env.LIVEPREVENT_DATA_DIR ?? join(process.cwd(), "mockdata"), "liveprevent.sqlite");
 
 export interface DemoRun {
   id: string;
@@ -82,7 +82,7 @@ let database: DatabaseSync | null = null;
 
 function db(): DatabaseSync {
   if (database) return database;
-  mkdirSync(join(process.cwd(), "mockdata"), { recursive: true });
+  mkdirSync(process.env.LIVEPREVENT_DATA_DIR ?? join(process.cwd(), "mockdata"), { recursive: true });
   const connection = new DatabaseSync(DB_PATH);
   connection.exec(`
     CREATE TABLE IF NOT EXISTS people (id TEXT PRIMARY KEY, state TEXT NOT NULL);
@@ -196,8 +196,24 @@ export function saveStore(store: DemoStore, connection = db()): void {
 }
 
 export function resetStore(personId = DEFAULT_PERSON_ID): DemoStore | null {
-  if (!getStore(personId)) return null;
+  const previous = getStore(personId);
+  if (!previous) return null;
   const store = personId === SECOND_PERSON_ID ? createSecondStore(Date.now()) : createSeededStore(Date.now());
+  store.subject = previous.subject;
+  store.contacts = previous.contacts;
+  store.devices = previous.devices;
+  store.subscription = previous.subscription;
+  // Developer scenario reset must not break retained uploaded assessments.
+  const uploaded = previous.events.filter((event) => previous.structuredFacts[event.id]?.observations !== undefined);
+  const uploadedIds = new Set(uploaded.map((event) => event.id));
+  store.events.push(...uploaded);
+  store.alerts.push(...previous.alerts.filter((alert) => uploadedIds.has(alert.eventId)));
+  for (const event of uploaded) {
+    store.structuredFacts[event.id] = previous.structuredFacts[event.id];
+    if (previous.kimiSummaries[event.id]) store.kimiSummaries[event.id] = previous.kimiSummaries[event.id];
+  }
+  store.seq = Math.max(store.seq, previous.seq);
+  store.auditLog = previous.auditLog;
   saveStore(store);
   db().prepare("DELETE FROM demo_runs WHERE person_id = ?").run(personId);
   return store;

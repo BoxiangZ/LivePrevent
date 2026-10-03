@@ -29,3 +29,6 @@ yarn-error.log*
 .vscode/
 .idea/
 mockdata/
+
+# Isolated verification build (keeps running development server intact)
+.next-verify/

@@ -1,14 +1,17 @@
+import { legacyAccess } from "@/server/v3/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { getRun, getStore, listRuns, saveRun, saveStore } from "@/server/store";
 import { ingestObservation, parseObservation } from "@/server/observations";
 
 export async function GET(request: NextRequest) {
+  const denied = await legacyAccess(request); if (denied) return denied;
   const personId = request.nextUrl.searchParams.get("personId") ?? "";
   if (!getStore(personId)) return NextResponse.json({ error: "unknown_person" }, { status: 404 });
   return NextResponse.json({ runs: listRuns(personId) });
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await legacyAccess(request); if (denied) return denied;
   const raw = await request.json().catch(() => null);
   const input = parseObservation(raw);
   if (typeof input === "string") return NextResponse.json({ error: input }, { status: 400 });

@@ -1,58 +1,102 @@
-# LivePrevent desktop demo API contract (v2)
+# LivePrevent desktop API contract — v3
 
-All routes return JSON. All health observations and delivery records are synthetic. Every person-scoped request includes `personId`; unknown IDs return 404. The local SQLite file is `mockdata/liveprevent.sqlite` and is ignored by Git. This contract is for the demo, not a production authentication or device-ingestion service.
+Implementation contract, 2026-10-03. Product design: [PRODUCT_EXPERIENCE_AND_API.md](PRODUCT_EXPERIENCE_AND_API.md). This document describes implemented routes; it replaces the v2 contract. This is a single-process, local sample workspace, with optional real Kimi inference. It is not a production account, device-ingestion or notification service.
 
-## Shared data and pages
+## Shared validation and access
 
-`GET /api/demo/state?personId=…` returns `DemoStateSnapshot` from `src/server/snapshot.ts`. The header selector uses `people[]` (`id`, `label`, `alias`, `overallLevel`, `openAlertCount`); the connection banner uses `dataStatus` (`source`, `synthetic`, `asOf`, `stale`). The body is scoped to the selected person.
+Runtime schemas are the source of truth:
 
-| Page | State fields consumed |
+- `src/shared/contracts/assessment.ts`: people, overview, options, observation, upload, media, assessment, findings, envelopes.
+- `src/shared/contracts/settings.ts`: settings, contact channels, quiet hours, time zones, version and consent.
+- `src/shared/contracts/snapshot.ts`: existing alerts, events, trends, notification previews, contacts, baselines and audit fields.
+- `src/client/api.ts`: validates v3 response envelopes and data; provider validates snapshot responses.
+
+Success: `{schemaVersion:"3",requestId,generatedAt,data}`. Errors: `{code,message,fieldErrors?,requestId,retryable}`. Timestamps are ISO 8601 with offsets. IDs are opaque. A missing session returns 401, unbound person 403, missing record 404, conflict 409, expired media 410, oversized upload 413, unsupported extension 415, invalid input 422. Invalid JSON returns 400. No user names, API keys, paths or upload tokens appear in logs or assessment results.
+
+`POST /api/v3/session` issues an opaque HttpOnly, SameSite=Strict cookie for the local sample family account. `GET /api/v3/session` returns `userId,personIds,workspaceMode:"sample"`. Write requests check Origin/Host and reject cross-site fetches. A person binding is checked for every person/assessment/media/alert request. This sample login is deliberately not production authentication. Do not expose this server publicly with real health data.
+
+## Page-to-field map
+
+| Page or component | Request and complete data groups |
 | --- | --- |
-| Overview | `subject`, `overallLevel`, `dataStatus`, `deviceDetails`, `devices`, `activeCriticalAlertId`, `pendingFallEventId`, `alerts`, `events`, `metricSummaries`, `baselines`, `trends`, `demoTimeScale`, `nowMs` |
-| Alerts | `alerts` including `level`, `status`, `levelHistory`, `notifications`, `escalation`; `events`, `contacts`, `notifications` |
-| Event details | `events` including `signals`, `fallPhase`, `recoveryWindowEndsAt`; `alerts`, `deviations`, `baselines`, `trends`, `kimiSummaries`, `contacts`, `notifications`, `auditLog`, `subject.timeZone` |
-| Person details | `subject`, `deviceDetails`, `devices`, `baselines`, `metricSummaries`, `trends`, `events`, `alerts` |
-| Care Network | `contacts` including `name`, `escalationOrder`, `channels`, `phoneVerified`, `quietHours`; `subscription`; `alerts` |
-| Settings | `subscription`, `contacts`, `deviceDetails`, `subject.monitoringPaused` |
-| Care Dashboard preview | `carePatients` including `name`, `age`, `level`, `reason`, `statusLabel`, `lastUpdatedIso`, `live` |
-| Notification preview | `notifications` list with `id`, `alertId`, `contactId`, `contactName`, `channel`, `sentAt`, `subject`, `body`, `secureLinkAvailable`; action URL fetched separately |
+| Person selector | `GET people`: `{id,label,alias,overallLevel,openAlertCount}[]`. Local selection is stored by the client; access is enforced by the server. |
+| Overview: current status | `GET people/:id/overview`: `personId,displayStatus,statusReason,evaluatedAt,riskLevel,sourceLabel,learningProgress{currentDay,totalDays}?`. `displayStatus` is stable/watch/important/critical/unknown/paused. Stale data never becomes Stable. An active Critical remains visible. |
+| Overview: freshness | Same response: `dataFreshness{verifiable,devices[]{id,label,online,worn?,batteryPct?,lastSyncAt?,reason,coveredRooms[]}}`. Null means unavailable, never zero. |
+| Overview: next action | Same response: `primaryAction{label,href,description}` supplied by the server. |
+| Recent observations, personal history and trends | `GET people/:id/snapshot`: `events`, `alerts`, `subject`, `trends`, `baselines`, `metricSummaries`, `devices`, `deviceDetails`. Snapshot runtime schema lists every nested field. Dates/colors/labels and chart selection may be derived in the client. |
+| Alerts and event detail | Snapshot: `alerts` includes level/status/history, acknowledgement/resolution actor/time/note, escalation and `recommendedAction`; `events` includes type/time/signals/fallPhase/recoveryWindowEndsAt/dedupeKey; `kimiSummaries`, `deviations`, `contacts`, `notifications`, `auditLog`, `nowMs`, `demoTimeScale` support the evidence, countdown and audit panels. |
+| Notifications | Snapshot: contact/name/channel/sentAt/subject/body, `deliveryStatus`, `simulated`, `secureLinkAvailable`. The sample records do not claim external delivery. |
+| Assessment list | `GET people/:id/assessments`: full `Assessment[]`, newest created first. List derives observation time, kind, progress and source from `input`, `status`, `stage`, `finding`, `createdAt`. This local version has no list pagination. |
+| New assessment | `GET assessment-options`: scenarios and observation kinds with labels/types; `limits{sensorBytes,videoBytes,videoSeconds,retentionHours}`; `videoAvailable,videoMessage`. Inputs and outputs below. |
+| Assessment result | `GET assessments/:id`: `assessmentId,personId,input,status,stage,createdAt,updatedAt,startedAt?,completedAt?,attempt,error?,retryable,finding?`. Findings listed below. |
+| Settings | `GET/PATCH people/:id/settings`: `personId,subject{alias,displayName,age?,timeZone,monitoringPaused},contacts[],devices[],subscription,consent,policy{retentionHours,workspaceMode},version`. Exact nested fields in settings schema. Consent and phone verification are read-only; contact account binding is server-controlled. Contact order is derived from array order. The current account contact must remain present. |
 
-`GET /api/demo/config?personId=…` returns `subject`, `contacts`, `devices`, `subscription`. `PUT /api/demo/config` accepts those same editable fields plus `personId`; it validates name, alias, age, time zone, 1–8 ordered contacts, channel selection, notification booleans and camera rooms. `possible_fall` is always `true`. The Setup page provides inputs for these fields and saves per person. This is the onboarding/configuration seam for a future account service.
+All paths in tables are relative to `/api/v3`. No plan/billing/invitation UI is retained, so no placeholder plan API is advertised. `/setup` uses the same Settings editor; `/care-network` redirects there. Developer tools stay at `/demo-studio` outside family navigation.
 
-## Synthetic observation input and output
+Additional read endpoints: `people/:id/devices`, `people/:id/history` (events), `people/:id/trends?window=7d|30d|90d` (trends/baselines/metricSummaries), `people/:id/alerts?status=all|active|resolved` (array), `people/:id/events/:eventId` (`event,alert?,assessment?,summary?`). These use the same snapshot fields. `alerts/:id/audit` and `/timeline` accept an offset `cursor` and return `{items,nextCursor}` in pages of 50. Event details work even without an alert.
 
-`POST /api/demo/observations` accepts `ObservationInput` (`src/shared/types/demo-api.ts`):
+## Upload contract
+
+1. `POST media/uploads`: `{personId,name,kind:"sensor"|"video",size,mime}` → 201 `{media,uploadUrl}`. Upload URL is private, session-bound and includes a one-use random token.
+2. `PUT {uploadUrl}` with raw bytes → validated `Media`. Browser XHR derives upload percentage; abort stops the request. Failed uploads require a new upload reservation.
+3. Optional `POST media/:id/complete` returns current Media (PUT already completes validation).
+4. `GET media/:id` returns metadata and parsed sensor rows. `GET media/:id/content` returns private bytes with no-store and nosniff.
+5. `DELETE media/:id` removes the local file and cancels queued/running assessments using it; retained result evidence remains. Expiry after 24 hours also removes files. Metadata can remain for audit; original contents are no longer returned.
+
+`Media`: `assetId,personId,name,kind,mime,size,durationSeconds?,status,createdAt,expiresAt,error?,observations[]`. Status: awaiting_upload/ready/failed/deleted. Owner and token are never included in public metadata.
+
+CSV/JSON: up to 1 MiB, 1,000 rows, schema-validated values. JSON accepts an array or `{observations:[...]}`. CSV columns `kind,value,at,source` and optional `withinCoverage`; quoted commas and newlines are supported. `value` follows the selected kind: boolean, non-negative number, or bounded text. Row errors are returned rather than silently discarding rows. Aggregate input across up to three files plus manual rows must be at most 1,000.
+
+Video: optional MP4, up to 50 MiB and 120 seconds; server validates container/header duration and actual received size. This is structural validation, not antivirus scanning or a complete codec validation service. Browser playback/model failure remains possible and is reported. No continuous camera stream is uploaded.
+
+## Assessment input, lifecycle and findings
+
+`POST assessments` accepts:
 
 ```json
 {
-  "personId": "sub_margaret",
-  "idempotencyKey": "demo-run-0001",
-  "eventType": "possible_fall",
-  "occurredAt": "2026-10-03T10:00:00.000Z",
-  "signals": [
-    { "source": "camera_posture", "description": "Possible fall posture", "withinCoverage": true },
-    { "source": "watch_impact", "description": "Sudden impact" }
-  ],
-  "probabilities": { "normal": 0.01, "notice": 0.02, "important": 0.03, "critical": 0.94 },
-  "insufficientData": false,
-  "recoveryObserved": false,
-  "note": "Synthetic test"
+  "personId":"sub_margaret",
+  "scenario":"possible_fall",
+  "observedAt":"2026-10-03T10:00:00Z",
+  "timeZone":"Asia/Hong_Kong",
+  "observations":[{"kind":"impact","value":true,"at":"2026-10-03T10:00:00Z","source":"sample_manual"}],
+  "sensorAssetIds":[],
+  "note":"",
+  "provenance":"sample_user_uploaded",
+  "consent":true,
+  "idempotencyKey":"unique-submission-123"
 }
 ```
 
-Returns 201 with `runId`, `personId`, `eventId`, nullable `alertId`, `level`, `probabilities`, `ruleApplied`, nullable `cappedReason`, nullable `recoveryWindowEndsAt`, `synthetic: true`. Repeating `(personId, idempotencyKey)` returns the saved result. `GET /api/demo/observations?personId=…` returns the 30 most recent input/output runs. The Demo I/O page exposes every input and displays the rule and linked event. The decision engine owns the risk level; the summary service does not change it. Fall candidates remain capped during the recovery window, then use the submitted probabilities when the window closes.
+`videoAssetId` is optional. At least one observation or parsed sensor file is required. Reusing the same key/input returns the same assessment; changing that input returns 409. Person mismatch, unfinished upload and invalid file kind are rejected. Sources: sample_manual/sample_sensor. Scenario and kind enums are provided by options and the shared schema.
 
-## Actions and notification links
+`POST assessments/:id/analyze` → 202 queued. A persisted background worker advances queued → analyzing → completed/partial/failed. `GET assessments/:id` is read-only. `POST .../cancel` cancels created/queued/analyzing; `POST .../retry` retries partial/failed/cancelled. A server restart recovers queued work; expired analyzing leases become retryable failures. Event IDs remain stable across retry; resolved alerts are not reopened. Failed or deleted attachments must be uploaded again in a new assessment.
 
-| Request | Input | Output / effect |
-| --- | --- | --- |
-| `POST /api/demo/inject` | `personId`, `scenario: fall \| inactivity` | Preset event and alert IDs; local demo state updated |
-| `POST /api/demo/reset` | `personId` | Resets only that person's demo state and runs |
-| `POST /api/demo/pause` | `personId`, `paused` | `monitoringPaused`; audit entry |
-| `POST /api/alerts/:id/ack` | `personId`, optional `contactId` or one-time `token` | Acknowledged alert and event ID; stops escalation |
-| `POST /api/alerts/:id/resolve` | `personId`, `reason`, optional `note` | Resolved alert; audit entry |
-| `POST /api/kimi/summary` | `eventId` | Structured `KimiSummary`; template fallback if unavailable |
-| `GET /api/demo/notifications/:id?personId=…` | Notification ID | Exact preview `subject`, `body`, demo-only `actionUrl` |
-| `GET /api/demo/ack/:token` | One-time token | `personId`, `alertId`, `eventId`, `contactName`, `status` (`valid`, `used`, `expired`) |
+`Finding`: `displayStatus,level?,headline,plainSummary,recommendedAction,limitations[],observations[],video?,sourceBreakdown[],model{provider,modelId?,used,fallbackReason?},decision{engine,version,ruleId},eventId?,alertId?`.
 
-The shared state response contains `secureLinkAvailable`, never a raw one-time token. A preview requests the action URL only when opened. This is still a local demo flow; production requires authenticated authorization and contact verification on these endpoints.
+`video`: `summary,uncertain,limitations[],evidence[]{atSeconds,description,kind,confidence}`. Timestamps must be within the clip; kind is fall_posture/recovery/movement/unclear. Evidence links seek the private video while it remains available. Model observation is separate from the rule decision. Missing evidence is Unknown, not Stable. Observations outside the five-minute selection window or explicitly outside coverage are excluded from rule decisions; conflicts are disclosed. Uploaded historical clips never trigger critical escalation merely because they end without visible recovery.
+
+Kimi receives the full structured sample observations and optional clip through `video_url` using a base64 payload. Default visual model is configurable via `KIMI_VISION_MODEL` (kimi-k2.5). Protocol reference: [Moonshot official visual API example](https://github.com/MoonshotAI/Kimi-K2.5#6-model-usage). The existing text summary adapter uses `KIMI_MODEL`. The risk decision uses auditable sample rules, not an asserted medical prediction. No key/offline/provider failure/invalid model output → explicit partial result; `model.used` and `fallbackReason` report what happened. The local 24-hour policy does not promise deletion from a third-party provider's internal logs.
+
+## Mutations and compatibility
+
+- `POST alerts/:id/ack`: acting contact comes from session; a submitted contactId cannot impersonate another person.
+- `POST alerts/:id/resolve` or `/feedback`: `{personId,reason,note}`; allowed reason enums are validated; repeated/invalid state returns conflict. Response `{ok,alertId,eventId?}`.
+- Settings PATCH requires the complete current settings payload and `version`. Stale version → 409; reload explicitly before retrying. Monitoring pause/resume is `subject.monitoringPaused` in this same contract.
+- Legacy `/api/demo/*` and `/api/alerts/*` are session-guarded compatibility/developer routes. `PUT /api/demo/config` is retired (410); writes must use v3. `/api/kimi/summary` remains a guarded explicit text-summary action for older sample events.
+
+## Running and verification
+
+Requires Node with `node:sqlite`. SQLite state, sessions, jobs and private uploads use `LIVEPREVENT_DATA_DIR` (default ignored `mockdata/`). Deploy as one persistent Node process; distributed workers/serverless and production identity/notifications are outside this version.
+
+```sh
+npm run typecheck
+npm run test:model
+NEXT_DIST_DIR=.next-verify npm run build
+LIVEPREVENT_DATA_DIR=/private/tmp/liveprevent-v3-check DEMO_KIMI_OFFLINE=1 NEXT_DIST_DIR=.next-verify npm run start -- --port 3105 --hostname 127.0.0.1
+npm run test:api
+```
+
+Use an isolated directory for tests; they mutate sample settings/events. The API test covers browser Origin, unauthenticated access, person isolation, schema responses, saved settings/version conflicts, pause state, invalid input, idempotency, async/offline partial results, events without alerts, fall review, actor binding, resolution, CSV upload/errors/deletion, size limits and cancellation. Browser checks cover login, Overview, sample submission, result and linked event. Live video inference quality needs representative permitted clips and a configured provider; it is not established by offline tests.
+
+`npm run test:model` 使用隔离 SQLite 和本地 fetch 替身，验证完整观察数据/视频载荷、成功输出、越界时间戳拒绝、部分失败、冲突与不确定性、重置保留上传事件及文件删除。MP4 仅为元数据夹具，不测试视频解码或模型识别准确率。

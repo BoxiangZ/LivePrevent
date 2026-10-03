@@ -56,7 +56,7 @@ export function ingestObservation(store: DemoStore, input: ObservationInput): Ob
   store.decisionInsufficientData ??= {};
   store.decisionInsufficientData[eventId] = input.insufficientData;
   let alertId: string | null = null;
-  if (out.level !== "stable" && (store.subscription[input.eventType] ?? true)) {
+  if (out.level !== "stable" && (input.eventType === "general_check" || store.subscription[input.eventType])) {
     alertId = nextId(store, "al");
     const alert: Alert = { id: alertId, subjectId: store.subject.id, eventId, eventType: input.eventType,
       level: out.level, status: "open", createdAt: nowIso,

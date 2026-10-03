@@ -1,3 +1,12 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+  .panel { @apply rounded-2xl border border-surface-line bg-white p-6 shadow-card; }
+  .field { @apply mt-1 block w-full rounded-lg border border-surface-line bg-white px-3 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand-500; }
+  .btn-primary { @apply inline-flex items-center justify-center rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-secondary { @apply inline-flex items-center justify-center rounded-lg border border-surface-line bg-white px-4 py-2 text-sm font-medium text-ink hover:bg-surface-soft disabled:opacity-50; }
+  .eyebrow { @apply text-xs font-semibold uppercase tracking-widest text-ink-mute; }
+}
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid #236b85; outline-offset: 3px; }

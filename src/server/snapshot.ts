@@ -4,6 +4,7 @@
  * 倒计时以快照中的 nowMs 为基准计算，避免客户端/服务端时钟偏差。
  */
 
+import { recommendedAction } from "@/server/v3/actions";
 import type { DemoStore } from "@/server/store";
 import { freshnessOf } from "@/server/store";
 import { seedCarePatients } from "@/server/data/care";
@@ -27,10 +28,13 @@ export interface NotificationPreview {
   subject: string | null;
   body: string;
   secureLinkAvailable: boolean;
+  deliveryStatus: "sent" | "delivered" | "failed";
+  simulated: true;
 }
 
 export interface SnapshotAlert extends Alert {
   eventLabel: string;
+  recommendedAction: string;
 }
 
 export interface SnapshotBaseline {
@@ -249,6 +253,8 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
         subject: body?.subject ?? null,
         body: body?.rawToken ? (body.body ?? "").replaceAll(body.rawToken, "[secure link available in preview]") : body?.body ?? "",
         secureLinkAvailable: Boolean(body?.rawToken),
+        deliveryStatus: n.deliveryStatus,
+        simulated: true,
       };
     })
   );
@@ -262,7 +268,7 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
   const overall = overallLevelOf(store.alerts);
 
   // The live preview row reflects the selected person's state.
-  const carePatients = seedCarePatients(nowIso).map((p) =>
+  const carePatients = seedCarePatients(store.user.createdAt).map((p) =>
     p.live
       ? {
           ...p,
@@ -289,7 +295,7 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
                 : overall === "watch"
                   ? "Monitoring"
                   : "Stable",
-          lastUpdatedIso: nowIso,
+          lastUpdatedIso: store.devices.map(d => d.lastSyncAt).filter((v): v is string => !!v).sort().at(-1) ?? store.user.createdAt,
         }
       : p
   );
@@ -312,7 +318,7 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
       timeZone: store.subject.timeZone,
       monitoringPaused: store.subject.monitoringPaused,
     },
-    learningProgress: null,
+    learningProgress: store.baselines.some(b => !b.learned) ? { currentDay: Math.max(0, Math.floor((nowMs - Date.parse(store.baselines.find(b => !b.learned)!.learningSince)) / 86400000)), totalDays: store.baselines.find(b => !b.learned)!.metric === "sleep" ? 28 : 14 } : null,
     overallLevel: overall,
     devices: freshnessOf(store),
     deviceDetails: store.devices.map((d) => ({
@@ -340,10 +346,10 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
     deviations: store.deviations,
     alerts: [...store.alerts]
       .sort((x, y) => y.createdAt.localeCompare(x.createdAt))
-      .map((a) => ({ ...a, eventLabel: EVENT_LABEL[a.eventType] ?? a.eventType })),
+      .map((a) => ({ ...a, eventLabel: EVENT_LABEL[a.eventType] ?? a.eventType, recommendedAction: recommendedAction(a.eventType) })),
     contacts: [...store.contacts].sort((x, y) => x.escalationOrder - y.escalationOrder),
     notifications: notifications.sort((x, y) => y.sentAt.localeCompare(x.sentAt)),
-    auditLog: [...store.auditLog].sort((x, y) => y.at.localeCompare(x.at)).slice(0, 50),
+    auditLog: [...store.auditLog].sort((x, y) => y.at.localeCompare(x.at)),
     subscription: store.subscription,
     kimiSummaries: store.kimiSummaries,
     carePatients,

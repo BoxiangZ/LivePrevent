@@ -1,5 +1,6 @@
+import { legacyAccess, session } from "@/server/v3/auth";
 import { NextResponse } from "next/server";
-import { findStoreByEventId, saveStore } from "@/server/store";
+import { findStoreByEventId, getStore, saveStore } from "@/server/store";
 import { callKimi } from "@/server/llm/kimi";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
  * 无 API Key / 超时 / 校验失败 → 模板降级，接口始终 200。
  */
 export async function POST(req: Request) {
+  const denied = await legacyAccess(req); if (denied) return denied;
   const body = (await req.json().catch(() => ({}))) as { eventId?: string };
   const eventId = body.eventId;
   if (!eventId) {
@@ -18,6 +20,7 @@ export async function POST(req: Request) {
   const store = findStoreByEventId(eventId);
   if (!store) return NextResponse.json({ ok: false, error: "event_not_found" }, { status: 404 });
 
+  session(req, store.subject.id);
   const facts = store.structuredFacts[eventId];
   if (!facts) {
     return NextResponse.json({ ok: false, error: "no_structured_facts" }, { status: 404 });
@@ -28,7 +31,8 @@ export async function POST(req: Request) {
   if (cached) return NextResponse.json({ ok: true, summary: cached });
 
   const summary = await callKimi(eventId, facts);
-  store.kimiSummaries[eventId] = summary;
-  saveStore(store);
+  const latest = getStore(store.subject.id)!;
+  latest.kimiSummaries[eventId] = summary;
+  saveStore(latest);
   return NextResponse.json({ ok: true, summary });
 }

@@ -1,0 +1,4 @@
+kind,value,at,source
+impact,true,2026-10-03T10:00:00Z,sample_sensor
+worn,true,2026-10-03T10:00:00Z,sample_sensor
+recovery,true,2026-10-03T10:00:30Z,sample_sensor

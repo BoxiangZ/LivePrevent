@@ -1,3 +1,4 @@
+import { legacyAccess } from "@/server/v3/auth";
 import { NextResponse } from "next/server";
 import { getStore, saveStore } from "@/server/store";
 import { advance } from "@/server/engine";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 /** 注入模拟事件（scenario: "fall" | "inactivity"）— PRD §19 步骤 2 */
 export async function POST(req: Request) {
+  const denied = await legacyAccess(req); if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const personId = (body as { personId?: string }).personId;
   if (!personId) return NextResponse.json({ ok: false, error: "personId_required" }, { status: 400 });
@@ -31,7 +33,7 @@ export async function POST(req: Request) {
       ok: false,
       error: `${scenario}_alert_already_active`,
       alertId: existing.id,
-    });
+    }, { status: 409 });
   }
 
   const result =

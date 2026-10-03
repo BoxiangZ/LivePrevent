@@ -1,3 +1,4 @@
+import { legacyAccess, session } from "@/server/v3/auth";
 import { NextResponse } from "next/server";
 import { findStoreByAlertId, appendAudit, saveStore } from "@/server/store";
 import { advance } from "@/server/engine";
@@ -10,6 +11,7 @@ export const dynamic = "force-dynamic";
  * Resolve — 由授权联系人手动处理并选择原因；Critical 必须人工处理，永不自动 Resolved — PRD §6.4
  */
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await legacyAccess(req); if (denied) return denied;
   const { id } = await params;
   const store = findStoreByAlertId(id);
   if (!store) return NextResponse.json({ ok: false, error: "alert_not_found" }, { status: 404 });
@@ -49,7 +51,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ ok: false, error: "alert_already_closed" }, { status: 409 });
   }
 
-  const contactId = body.contactId ?? store.contacts[0]?.id ?? null;
+  const identity = session(req, store.subject.id);
+  const contactId = store.contacts.find(c => c.userId === identity.userId)?.id;
+  if (!contactId) return NextResponse.json({error:"No authorized care contact"},{status:403});
+  if (body.note !== undefined && (typeof body.note !== "string" || body.note.length > 500)) return NextResponse.json({error:"Note must be at most 500 characters"},{status:400});
 
   alert.status = "resolved";
   alert.resolvedBy = contactId;

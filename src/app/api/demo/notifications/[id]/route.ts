@@ -1,7 +1,9 @@
+import { legacyAccess } from "@/server/v3/auth";
 import { NextRequest, NextResponse } from "next/server";
 import { getStore } from "@/server/store";
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await legacyAccess(request); if (denied) return denied;
   const { id } = await params;
   const personId = request.nextUrl.searchParams.get("personId") ?? "";
   const store = getStore(personId);

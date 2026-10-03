@@ -1,8 +1,10 @@
+import { legacyAccess } from "@/server/v3/auth";
 import { NextResponse } from "next/server";
 import { hashToken } from "@/server/engine";
 import { getStore, listPeople } from "@/server/store";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ token: string }> }) {
+  const denied = await legacyAccess(_request); if (denied) return denied;
   const { token } = await params;
   const hash = hashToken(token);
   for (const person of listPeople()) {

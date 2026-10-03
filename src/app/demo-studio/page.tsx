@@ -1,5 +1,6 @@
 "use client";
 
+import { DemoControls } from "@/client/components/DemoControls";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useDemo } from "@/client/provider/DemoProvider";
@@ -45,8 +46,8 @@ export default function DemoStudioPage() {
     finally { setBusy(false); }
   };
   return <div className="mx-auto max-w-5xl space-y-6 pb-10">
-    <div><h1 className="text-2xl font-semibold text-ink">Demo input and output</h1>
-      <p className="mt-1 text-sm text-ink-mute">Submit a synthetic observation for the selected person and inspect the exact decision. No raw video is accepted.</p></div>
+    <div><DemoControls /><h1 className="text-2xl font-semibold text-ink">Developer tools · scenario simulator</h1>
+      <p className="mt-1 text-sm text-ink-mute">Technical testing only. Probabilities here are manually supplied, not model predictions. Use Assessments to upload information or an optional video.</p></div>
     <div className="grid gap-5 lg:grid-cols-2">
       <section className="space-y-4 rounded-2xl border border-surface-line bg-white p-5">
         <h2 className="font-semibold">Input · {snapshot?.subject.name ?? "selected person"}</h2>

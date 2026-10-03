@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/demo/store";
-import { advance } from "@/lib/demo/engine";
-import { injectFall } from "@/lib/demo/inject";
+import { getStore } from "@/server/store";
+import { advance } from "@/server/engine";
+import { injectFall, injectInactivity } from "@/server/inject";
 
 export const dynamic = "force-dynamic";
 
-/** 注入模拟跌倒事件（摄像头姿态 + 手表冲击 + 心率偏离）— PRD §19 步骤 2 */
+/** 注入模拟事件（scenario: "fall" | "inactivity"）— PRD §19 步骤 2 */
 export async function POST(req: Request) {
   const store = getStore();
   const nowMs = Date.now();
@@ -13,22 +13,25 @@ export async function POST(req: Request) {
 
   const body = await req.json().catch(() => ({}));
   const scenario = (body as { scenario?: string }).scenario ?? "fall";
-  if (scenario !== "fall") {
+  if (scenario !== "fall" && scenario !== "inactivity") {
     return NextResponse.json({ ok: false, error: "unknown scenario" }, { status: 400 });
   }
 
-  // 防重复：已有处于观察窗或 open 的跌倒警报时不再注入
+  const eventType = scenario === "fall" ? "possible_fall" : "prolonged_inactivity";
+
+  // 防重复：已有同类 open/acknowledged 警报时不再注入
   const existing = store.alerts.find(
-    (a) => a.eventType === "possible_fall" && (a.status === "open" || a.status === "acknowledged")
+    (a) => a.eventType === eventType && (a.status === "open" || a.status === "acknowledged")
   );
   if (existing) {
     return NextResponse.json({
       ok: false,
-      error: "fall_alert_already_active",
+      error: `${scenario}_alert_already_active`,
       alertId: existing.id,
     });
   }
 
-  const result = injectFall(store, nowMs);
+  const result =
+    scenario === "fall" ? injectFall(store, nowMs) : injectInactivity(store, nowMs);
   return NextResponse.json({ ok: true, ...result });
 }

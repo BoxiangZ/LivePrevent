@@ -70,32 +70,24 @@ Web Dashboard（事件详情、趋势、摘要）
 - 页面最小集：Overview（含数据新鲜度、基线学习进度）、Alerts（横幅 + Acknowledge/Resolve/标记误报）、事件详情（支持信号 + 基线对比 + 趋势 + Kimi 摘要）、Patient Risk Board（B2B 预览，静态即可）。
 - 邮件模板按 PRD §7.2，附免责声明。
 
-## 6. 仓库结构（随开发更新）
+## 6. 仓库结构
+
+前后端分层详见 **[ARCHITECTURE.md](./ARCHITECTURE.md)**（含"我要改 X 该去哪"速查表）。
 
 ```
-LivePrevent/
-├── README.md               # 项目门面
-├── START.md                # 本文件
-├── docs/
-│   └── PRD.md              # PRD v0.2
-├── src/
-│   ├── types/              # 数据模型（风险/事件/基线/同意/设备/警报/JEV/审计/账户/视图）
-│   ├── lib/
-│   │   ├── constants.ts    # PRD 全部初始值（阈值、升级时间线、保留期、Demo 加速）
-│   │   ├── labels.ts       # 事件/等级/状态标签（通知模板与 Dashboard 共用）
-│   │   ├── jev/            # JEV 决策（decide.ts）+ 结构化事实构建（facts.ts）
-│   │   ├── alerts/         # 升级链纯函数（escalation.ts）+ 通知模板（templates.ts）
-│   │   ├── llm/kimi.ts     # Kimi 摘要（数值校验 + 模板降级，永不阻塞警报链）
-│   │   └── demo/           # 内存 store + 懒求值引擎 + 事件注入 + 状态快照
-│   ├── data/seed.ts        # 合成数据集（"Mum" + 30 天趋势 + 历史事件，确定性 PRNG）
-│   ├── components/         # RiskBadge / CriticalBanner / TrendChart / EscalationTimeline 等
-│   └── app/
-│       ├── overview|alerts|settings|login|board/   # PRD §11 页面
-│       ├── elders/[id]/    # Elder Detail
-│       ├── events/[id]/    # 事件详情复核页（Demo 步骤 7）
-│       ├── ack/[token]/    # Critical 一次性安全链接落地页
-│       └── api/            # demo/state|inject|reset|pause、alerts/[id]/ack|resolve、kimi/summary
+src/
+├── shared/     # 纯类型 + 纯常量（前后端共用）— types/ constants.ts prng.ts labels.ts
+├── server/     # Node-only 业务逻辑 — store.ts engine.ts inject.ts snapshot.ts
+│               #   jev/ alerts/ llm/ data/(seed.ts care.ts)
+├── client/     # React 组件 + provider — components/ provider/DemoProvider.tsx
+└── app/        # Next.js App Router — 页面（thin client）+ api/（thin HTTP 层）
+    ├── overview alerts margaret/[id] care-network care-dashboard settings login
+    ├── events/[id]/   # 事件详情复核页（Demo 高潮）
+    ├── ack/[token]/   # Critical 一次性安全链接落地页
+    └── api/           # demo/state|inject|reset|pause、alerts/[id]/ack|resolve、kimi/summary
 ```
+
+路径别名：`@shared/*` `@server/*` `@client/*`（见 tsconfig.json）。
 
 ## 6.5 运行（团队上手）
 
@@ -105,19 +97,23 @@ cp .env.example .env.local   # 然后找队友拿 KIMI_API_KEY 填进去；不�
 npm run dev                  # http://localhost:3000
 ```
 
-- **没有 Kimi key 也能完整演示**：`src/lib/llm/kimi.ts` 在 key 缺失 / 超时 / 校验失败时自动降级为模板摘要（PRD §10.3），页面会标注"模板降级"。
+- **没有 Kimi key 也能完整演示**：`src/server/llm/kimi.ts` 在 key 缺失 / 超时 / 校验失败时自动降级为模板摘要（PRD §10.3）。
 - 想强制离线排练：`.env.local` 里设 `DEMO_KIMI_OFFLINE=1`。
 - `.env.local` 已在 .gitignore，**任何 key 都不进 git**；团队共享受限 key 走私信，勿发群聊明文。
-- Demo 状态为服务端内存存储（`globalThis` 单例），**重启 dev server 会清空** — 演示前点底部 Demo 条的 "Reset demo" 即可回到初始合成数据。
+- Demo 状态为服务端内存存储（`globalThis` 单例），**重启 dev server 会清空** — 演示前点右下角 "Demo" 浮动按钮里的 "Reset scenario" 即可回到初始合成数据。
 
-### Demo 操作（PRD §19）
+### Demo 操作（2 分钟剧本）
 
-1. 底部常驻 Demo 条：点 **"⚡ Inject fall"** 注入模拟跌倒（摄像头姿态 + 手表冲击 + 心率偏离）
-2. 观察 Overview 顶部：先出现 🟠 恢复观察窗倒计时（10 秒，封顶 Important — PRD §5.2/§5.3）
-3. 窗内无恢复 → 自动升级 🔴 Critical，全局红色横幅出现，联系人 #1（Alex）收到模拟 Email+SMS+Push
-4. 不点确认，等 ~17 秒（T+5min ÷ 18×）→ 升级通知联系人 #2（Mrs. Chan）
-5. 在 Alerts 页的通知卡片里点 **"Review & Acknowledge"** 安全链接 → 以 Mrs. Chan 身份确认 → 进入事件详情页复核（信号 / 基线对比 / 30 天趋势 / Kimi 摘要）
-6. Resolve 选择原因（如"真实事件已处理"）→ 写入审计日志
+右下角 **"Demo"** 浮动按钮展开控制面板（默认收起，收起时产品就是生产形态）：
+
+1. **稳定态**：Overview 展示 "Margaret is stable"、四个健康域（Activity −37% today、Sleep、Mobility、Heart Rate）、Why this matters、Personal Baseline、7/30/90 天趋势
+2. 点 **"Simulate fall"** → Overview 出现恢复观察窗倒计时横幅（10 秒，封顶 Important）
+3. 窗内无恢复 → 自动升级 **Critical**，顶部红色全局横幅 + Alex 收到 Email/SMS/Push（模拟）
+4. 等 ~17 秒（T+5min ÷ 18×）→ Mrs. Chan 也被通知；事件详情页可见 T+0/5/15/30 升级时间线
+5. 事件详情页 → Notifications 里点 **"View"** 打开真实感邮件预览 → 点 **"Review & acknowledge"** 安全链接 → 确认 → 回到详情页 Resolve
+6. 或点 **"Simulate inactivity"** 演示第二场景：2h 47m 无活动（3.1× 基线）→ Important 级邮件 + Push（无升级链）
+7. **Care Dashboard**（直接访问 /care-dashboard）：机构视角 "Who needs attention today?" — Margaret（live）+ David Wong / Susan Lee / Peter Lau（mock）
+8. **"Reset scenario"** 一键回到稳定态
 
 ## 7. 下一步（建议顺序）
 

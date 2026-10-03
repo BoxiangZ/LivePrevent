@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resetStore } from "@/lib/demo/store";
+import { resetStore } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 

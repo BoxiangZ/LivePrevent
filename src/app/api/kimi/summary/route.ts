@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/demo/store";
-import { callKimi } from "@/lib/llm/kimi";
+import { getStore } from "@/server/store";
+import { callKimi } from "@/server/llm/kimi";
 
 export const dynamic = "force-dynamic";
 

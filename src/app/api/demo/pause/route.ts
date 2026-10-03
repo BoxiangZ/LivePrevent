@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getStore, appendAudit } from "@/lib/demo/store";
+import { getStore, appendAudit } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 

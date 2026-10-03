@@ -1,14 +1,13 @@
 "use client";
 
 /**
- * Critical 安全链接落地页 — PRD §7.1 / §19 步骤 7
- * 联系人 #2 从短信/邮件打开一次性限时链接 → 确认 → 进入事件详情复核。
- * Demo 简化：token 校验在服务端完成；真实产品打开后仍需会话验证。
+ * Critical 安全链接落地页 — 联系人从邮件/短信打开一次性链接，确认后进入事件详情。
  */
 
 import { use, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useDemo } from "@/components/DemoProvider";
+import { useDemo } from "@/client/provider/DemoProvider";
+import { Card, CardBody, Button } from "@/client/components/ui";
 
 export default function AckPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = use(params);
@@ -17,7 +16,6 @@ export default function AckPage({ params }: { params: Promise<{ token: string }>
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  // 找到该 token 对应的联系人（仅用于展示按钮文案；校验在服务端）
   const notif = snapshot?.notifications.find((n) => n.secureLinkToken === token) ?? null;
 
   const ack = async () => {
@@ -33,12 +31,12 @@ export default function AckPage({ params }: { params: Promise<{ token: string }>
       if (!res.ok) {
         setError(
           data.error === "token_expired"
-            ? "链接已过期（限时 30 分钟 — PRD §7.1）"
+            ? "This link has expired (links are valid for 30 minutes)."
             : data.error === "token_already_used"
-              ? "该一次性链接已被使用"
+              ? "This one-time link has already been used."
               : data.error === "invalid_token"
-                ? "无效链接"
-                : `确认失败：${data.error ?? res.status}`
+                ? "This link is not valid."
+                : `Could not acknowledge: ${data.error ?? res.status}`
         );
         return;
       }
@@ -49,30 +47,43 @@ export default function AckPage({ params }: { params: Promise<{ token: string }>
   };
 
   return (
-    <div className="mx-auto max-w-md space-y-6 p-8">
-      <div className="rounded-xl border border-critical/30 bg-white p-6 text-center shadow-sm">
-        <div className="text-3xl" aria-hidden>🔴</div>
-        <h1 className="mt-2 text-lg font-bold">LivePrevent — Critical 警报确认</h1>
-        <p className="mt-1 text-sm text-gray-500">
-          {notif
-            ? `您正以 ${notif.contactName} 的身份通过一次性安全链接确认（限时 30 分钟）`
-            : "正在校验一次性安全链接…"}
-        </p>
-        {error ? (
-          <div className="mt-4 rounded-md bg-critical/10 px-3 py-2 text-sm text-critical">{error}</div>
-        ) : (
-          <button
-            onClick={ack}
-            disabled={submitting || !notif}
-            className="mt-4 w-full rounded-md bg-critical px-4 py-2 text-sm font-semibold text-white hover:bg-critical/90 disabled:opacity-40"
-          >
-            {submitting ? "确认中…" : `Acknowledge${notif ? `（${notif.contactName.split("(")[0].trim()}）` : ""}`}
-          </button>
-        )}
-        <p className="mt-4 text-left text-[11px] leading-relaxed text-gray-400">
-          如您认为这是紧急情况，请立即联系当地紧急服务。LivePrevent 不是紧急呼叫服务。
-        </p>
-      </div>
+    <div className="mx-auto max-w-md py-10">
+      <Card>
+        <CardBody className="space-y-4 text-center">
+          <span className="relative mx-auto flex h-3 w-3">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-critical opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-critical" />
+          </span>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-ink">
+              Critical alert — acknowledge
+            </h1>
+            <p className="mt-1 text-sm text-ink-mute">
+              {notif
+                ? `You are acknowledging as ${notif.contactName} via a one-time secure link (valid 30 minutes).`
+                : "Validating your one-time secure link…"}
+            </p>
+          </div>
+          {error ? (
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-critical">{error}</div>
+          ) : (
+            <Button
+              variant="danger"
+              onClick={ack}
+              disabled={submitting || !notif}
+              className="w-full"
+            >
+              {submitting
+                ? "Acknowledging…"
+                : `Acknowledge${notif ? ` as ${notif.contactName.split(" ")[0]}` : ""}`}
+            </Button>
+          )}
+          <p className="text-left text-xs leading-relaxed text-ink-mute">
+            If you believe this is an emergency, contact local emergency services now. LivePrevent
+            is not an emergency service.
+          </p>
+        </CardBody>
+      </Card>
     </div>
   );
 }

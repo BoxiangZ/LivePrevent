@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
-import { getStore, appendAudit } from "@/lib/demo/store";
-import { advance } from "@/lib/demo/engine";
-import { RESOLVE_REASONS } from "@/types/risk";
-import type { ResolveReason } from "@/types/risk";
+import { getStore, appendAudit } from "@/server/store";
+import { advance } from "@/server/engine";
+import { RESOLVE_REASONS } from "@/shared/types/risk";
+import type { ResolveReason } from "@/shared/types/risk";
 
 export const dynamic = "force-dynamic";
 

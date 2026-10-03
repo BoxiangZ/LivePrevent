@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getStore, appendAudit } from "@/lib/demo/store";
-import { advance, hashToken } from "@/lib/demo/engine";
+import { getStore, appendAudit } from "@/server/store";
+import { advance, hashToken } from "@/server/engine";
 
 export const dynamic = "force-dynamic";
 

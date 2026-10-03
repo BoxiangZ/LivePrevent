@@ -1,147 +1,442 @@
 "use client";
 
 /**
- * Settings — PRD §11 #5
- * 警报订阅（§11.2 默认值，疑似跌倒主联系人不可关闭）、联系人与升级顺序、
- * 渠道与时区、隐私与数据（监测暂停）、套餐。
+ * Settings — how LivePrevent watches over Margaret, and what it never does.
+ * Sections: Notifications / Care Network / Privacy / Devices / Subscription.
  */
 
-import { useDemo } from "@/components/DemoProvider";
-import { PLANS } from "@/lib/constants";
+import Link from "next/link";
+import { useDemo } from "@/client/provider/DemoProvider";
+import {
+  Card,
+  CardHeader,
+  CardBody,
+  Pill,
+  Button,
+} from "@/client/components/ui";
+import { cn } from "@/client/cn";
 
-const SUBSCRIPTION_ROWS = [
-  { key: "possible_fall", label: "疑似跌倒（Critical）", locked: true },
-  { key: "heart_rate_deviation", label: "心率偏离", locked: false },
-  { key: "prolonged_inactivity", label: "长时间无活动", locked: false },
-  { key: "activity_drop", label: "活动骤降", locked: false },
-  { key: "device_data_gap", label: "设备离线 / 数据缺失", locked: false },
-  { key: "sleep_change", label: "睡眠变化（仅 Dashboard 展示）", locked: false },
-] as const;
+/* ---------- small bits ---------- */
+
+function CheckIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 20 20"
+      fill="none"
+      aria-hidden
+      className={cn("h-4 w-4", className)}
+    >
+      <path
+        d="M5 10.5l3 3 7-7"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function Switch({ on, locked }: { on: boolean; locked?: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
+        on ? "bg-brand-600" : "bg-surface-line",
+        locked ? "opacity-60" : "opacity-100"
+      )}
+    >
+      <span
+        className={cn(
+          "absolute h-4 w-4 rounded-full bg-white shadow transition-transform",
+          on ? "translate-x-[18px]" : "translate-x-[2px]"
+        )}
+      />
+    </span>
+  );
+}
+
+function SettingRow({
+  title,
+  sub,
+  on,
+  locked,
+}: {
+  title: string;
+  sub: string;
+  on: boolean;
+  locked?: boolean;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-6 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink">{title}</div>
+        <div className="mt-0.5 text-xs text-ink-mute">{sub}</div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2 pt-0.5">
+        {locked ? (
+          <span className="text-[11px] text-ink-mute">Always on</span>
+        ) : null}
+        <Switch on={on} locked={locked} />
+      </div>
+    </div>
+  );
+}
+
+function StatusDot({ online }: { online: boolean }) {
+  return (
+    <span
+      className={cn(
+        "inline-block h-2 w-2 rounded-full",
+        online ? "bg-stable" : "bg-critical"
+      )}
+      aria-label={online ? "Online" : "Offline"}
+    />
+  );
+}
+
+function ChannelLabel({ channel }: { channel: string }) {
+  const label =
+    channel === "voice_call"
+      ? "Voice call"
+      : channel.charAt(0).toUpperCase() + channel.slice(1);
+  return <Pill tone="brand">{label}</Pill>;
+}
+
+function PlanBullet({ children }: { children: string }) {
+  return (
+    <li className="flex items-start gap-2 text-sm text-ink-soft">
+      <CheckIcon className="mt-0.5 shrink-0 text-stable" />
+      <span>{children}</span>
+    </li>
+  );
+}
+
+/* ---------- page ---------- */
 
 export default function SettingsPage() {
   const { snapshot, setPaused, busy } = useDemo();
 
   if (!snapshot) {
-    return <div className="mx-auto max-w-5xl p-8 text-sm text-gray-400">Loading…</div>;
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold tracking-tight text-ink">Settings</h1>
+          <p className="mt-0.5 text-sm text-ink-mute">
+            How LivePrevent watches over Margaret — and what it never does.
+          </p>
+        </div>
+        <Card>
+          <CardBody>
+            <div className="py-6 text-center text-sm text-ink-mute">Loading…</div>
+          </CardBody>
+        </Card>
+      </div>
+    );
   }
 
   const sub = snapshot.subscription;
+  const contacts = snapshot.contacts;
+  const devices = snapshot.deviceDetails;
+  const paused = snapshot.subject.monitoringPaused;
+
+  const primaryContact = contacts.find((c) => c.escalationOrder === 1);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-6">
-      <h1 className="text-xl font-bold">Settings</h1>
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight text-ink">Settings</h1>
+        <p className="mt-0.5 text-sm text-ink-mute">
+          How LivePrevent watches over Margaret — and what it never does.
+        </p>
+      </div>
 
-      {/* 警报订阅 — PRD §11.2 */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-700">警报订阅（默认值 — PRD §11.2）</h2>
-        <div className="mt-3 divide-y divide-gray-100">
-          {SUBSCRIPTION_ROWS.map((row) => {
-            const on = sub[row.key as keyof typeof sub] === true;
-            return (
-              <div key={row.key} className="flex items-center justify-between py-2.5">
-                <span className="text-sm text-gray-700">{row.label}</span>
-                <span className="flex items-center gap-2">
-                  {row.locked && (
-                    <span className="text-[10px] text-gray-400" title="安全关键功能不按套餐锁定 — PRD §12">
-                      主联系人不可关闭
-                    </span>
-                  )}
-                  <span
-                    className={`inline-flex h-5 w-9 items-center rounded-full px-0.5 ${
-                      on ? "bg-indigo-600 justify-end" : "bg-gray-200 justify-start"
-                    } ${row.locked ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
-                    aria-disabled={row.locked}
-                  >
-                    <span className="h-4 w-4 rounded-full bg-white shadow" />
-                  </span>
+      {/* Notifications */}
+      <Card>
+        <CardHeader
+          title="Notifications"
+          sub="What reaches you, and on which channels."
+        />
+        <CardBody>
+          <div className="divide-y divide-surface-line">
+            <SettingRow
+              title="Possible fall"
+              sub="Always on — core safety net."
+              on={sub.possible_fall}
+              locked
+            />
+            <SettingRow
+              title="Heart rate deviation"
+              sub="When resting heart rate moves outside her normal range."
+              on={sub.heart_rate_deviation}
+            />
+            <SettingRow
+              title="Abnormal inactivity"
+              sub="Long stretches without movement during her usual active hours."
+              on={sub.prolonged_inactivity}
+            />
+            <SettingRow
+              title="Activity below baseline"
+              sub="Daily activity meaningfully lower than her personal baseline."
+              on={sub.activity_drop}
+            />
+            <SettingRow
+              title="Data gap"
+              sub="When a device stops reporting — so silence is never mistaken for safety."
+              on={sub.device_data_gap}
+            />
+            <SettingRow
+              title="Sleep changes"
+              sub="Dashboard only — no notifications for gradual sleep drift."
+              on={sub.sleep_change}
+            />
+          </div>
+
+          <div className="mt-5 border-t border-surface-line pt-4">
+            <div className="text-xs font-medium uppercase tracking-wide text-ink-mute">
+              Channels — {primaryContact?.name ?? "Primary contact"} (primary)
+            </div>
+            <div className="mt-2 divide-y divide-surface-line">
+              <SettingRow
+                title="Email"
+                sub="Detailed summaries with secure links to the dashboard."
+                on
+              />
+              <SettingRow
+                title="SMS"
+                sub="Short, time-sensitive alerts."
+                on
+              />
+              <SettingRow
+                title="Push"
+                sub="Instant alerts in the LivePrevent app."
+                on
+              />
+            </div>
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-surface-soft px-3 py-2.5">
+              <svg
+                viewBox="0 0 20 20"
+                fill="none"
+                aria-hidden
+                className="mt-0.5 h-4 w-4 shrink-0 text-ink-mute"
+              >
+                <path
+                  d="M17 11.5A7 7 0 018.5 3a7 7 0 108.5 8.5z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              <div className="text-xs text-ink-soft">
+                <span className="font-medium text-ink">Quiet hours 22:00 – 07:00.</span>{" "}
+                Non-urgent updates are held overnight.{" "}
+                <span className="font-medium text-ink">
+                  Critical alerts always come through.
                 </span>
               </div>
-            );
-          })}
-        </div>
-        <div className="mt-2 text-xs text-gray-400">
-          Watch 级 Email 默认不发（{sub.watchEmailEnabled ? "已开启" : "关闭"}）· Critical 走 Email+SMS+Push 多通道，绝不只依赖 Email（PRD §3.1）。
-        </div>
-      </section>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
 
-      {/* 联系人与升级顺序 — PRD §6.2 */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-700">联系人链（升级顺序）</h2>
-        <div className="mt-3 space-y-3">
-          {snapshot.contacts.map((c) => (
-            <div key={c.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-gray-100 p-3">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700">
-                #{c.escalationOrder}
-              </span>
-              <div className="flex-1">
-                <div className="text-sm font-medium text-gray-900">{c.name}</div>
-                <div className="text-xs text-gray-500">
-                  {c.timeZone} · 渠道：{c.channels.join(" + ")}
-                  {c.quietHours ? ` · 免打扰 ${c.quietHours.start}–${c.quietHours.end}（仅 Important 遵守；Critical 不受限）` : " · 无免打扰"}
+      {/* Care Network */}
+      <Card>
+        <CardHeader
+          title="Care Network"
+          sub="Who is notified, and in what order."
+        />
+        <CardBody>
+          <div className="divide-y divide-surface-line">
+            {contacts.map((c) => (
+              <div
+                key={c.id}
+                className="flex flex-wrap items-center justify-between gap-3 py-3"
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink">{c.name}</div>
+                  <div className="mt-0.5 text-xs text-ink-mute">
+                    {c.escalationOrder === 1
+                      ? "Primary — notified first"
+                      : `Contact #${c.escalationOrder} — notified if the primary hasn't responded`}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {c.channels.map((ch) => (
+                    <ChannelLabel key={ch} channel={ch} />
+                  ))}
                 </div>
               </div>
-              {c.phoneVerified && <span className="text-[10px] text-stable">✓ 手机已验证</span>}
-            </div>
-          ))}
-        </div>
-        <div className="mt-2 text-xs text-gray-400">
-          强烈建议至少 1 位同城 / 同时区联系人，应对家属在海外且夜间的情况（PRD §6.2）。
-        </div>
-      </section>
+            ))}
+          </div>
+          <div className="mt-3 border-t border-surface-line pt-3">
+            <Link
+              href="/care-network"
+              className="text-sm font-medium text-brand-600 hover:text-brand-700"
+            >
+              Manage care network →
+            </Link>
+          </div>
+        </CardBody>
+      </Card>
 
-      {/* 隐私与数据 — PRD §8 */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-700">隐私与数据</h2>
-        <div className="mt-3 flex items-center justify-between rounded-lg border border-gray-100 p-3">
-          <div>
-            <div className="text-sm font-medium text-gray-900">监测暂停（隐私模式）</div>
-            <div className="text-xs text-gray-500">暂停期间不产生“无活动”告警，家属侧显示“监测已暂停”（PRD §8.1）</div>
-          </div>
-          <button
-            onClick={() => setPaused(!snapshot.subject.monitoringPaused)}
-            disabled={busy}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold ${
-              snapshot.subject.monitoringPaused
-                ? "bg-watch text-white"
-                : "border border-gray-300 text-gray-600 hover:bg-gray-50"
-            } disabled:opacity-40`}
-          >
-            {snapshot.subject.monitoringPaused ? "已暂停 · 点击恢复" : "暂停监测"}
-          </button>
-        </div>
-        <ul className="mt-3 space-y-1 text-xs text-gray-500">
-          <li>· 摄像头默认端侧处理，不持续上传视频（PRD §8.2）</li>
-          <li>· 数据保留：原始传感器 30 天 / 事件记录 12 个月 / 审计日志 24 个月（建议初始值 — PRD §8.4）</li>
-          <li>· 通知最小化：邮件 / 短信不含健康数值（PRD §7）</li>
-        </ul>
-      </section>
+      {/* Privacy */}
+      <Card>
+        <CardHeader
+          title="Privacy"
+          sub="LivePrevent analyzes behaviour, not video."
+        />
+        <CardBody>
+          <ul className="space-y-2.5">
+            {[
+              "Camera processing happens on the device — raw video is never uploaded or stored.",
+              "Only events and trends leave the home — never images or audio.",
+              "Margaret can pause monitoring at any time, from any page.",
+              "AI summaries are generated from de-identified structured facts only.",
+            ].map((line) => (
+              <li key={line} className="flex items-start gap-2.5">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-green-50 text-stable">
+                  <CheckIcon className="h-3 w-3" />
+                </span>
+                <span className="text-sm text-ink-soft">{line}</span>
+              </li>
+            ))}
+          </ul>
 
-      {/* 套餐 — PRD §12 */}
-      <section className="rounded-xl border border-gray-200 bg-white p-5">
-        <h2 className="text-sm font-semibold text-gray-700">套餐</h2>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-lg border-2 border-indigo-500 p-4">
-            <div className="flex items-center justify-between">
-              <span className="font-semibold">Basic（当前）</span>
-              <span className="rounded bg-indigo-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">CURRENT</span>
+          <div className="mt-5 border-t border-surface-line pt-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm font-medium text-ink">Monitoring pause</div>
+                <div className="mt-0.5 text-xs text-ink-mute">
+                  When paused, no new events are generated.
+                </div>
+              </div>
+              <Button
+                variant={paused ? "danger" : "primary"}
+                onClick={() => setPaused(!paused)}
+                disabled={busy}
+              >
+                {paused ? "Resume monitoring" : "Pause monitoring"}
+              </Button>
             </div>
-            <ul className="mt-2 space-y-1 text-xs text-gray-600">
-              <li>· 被监测老人 {PLANS.basic.subjects} 位</li>
-              <li>· 趋势历史 {PLANS.basic.trendHistoryDays} 天</li>
-              <li>· 家庭成员账户 {PLANS.basic.familyAccounts} 个</li>
-              <li>· Critical 多通道 + 升级 ✓（安全关键功能不按套餐锁定）</li>
-            </ul>
+            {paused ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Monitoring is paused — no new events are being generated.
+              </div>
+            ) : null}
           </div>
-          <div className="rounded-lg border border-gray-200 p-4">
-            <span className="font-semibold text-gray-700">Premium</span>
-            <ul className="mt-2 space-y-1 text-xs text-gray-500">
-              <li>· 多位被监测老人</li>
-              <li>· 趋势历史 {PLANS.premium.trendHistoryDays} 天</li>
-              <li>· 家庭成员不限 · 完整 AI 摘要</li>
-            </ul>
+        </CardBody>
+      </Card>
+
+      {/* Devices */}
+      <Card>
+        <CardHeader
+          title="Devices"
+          sub="Sensors watching over Margaret's home."
+        />
+        <CardBody>
+          <div className="divide-y divide-surface-line">
+            {devices.map((d) => (
+              <div key={d.id} className="flex items-start justify-between gap-4 py-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <StatusDot online={d.online} />
+                    <span className="text-sm font-medium text-ink">{d.label}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-ink-mute">
+                    {d.type === "camera"
+                      ? `${d.coveredRooms.join(", ")} · On-device processing`
+                      : d.type === "watch"
+                        ? d.batteryPct !== null
+                          ? `Battery ${d.batteryPct}%${d.worn === false ? " · Not worn" : ""}`
+                          : d.worn === false
+                            ? "Not worn"
+                            : "Worn"
+                        : d.coveredRooms.length > 0
+                          ? d.coveredRooms.join(", ")
+                          : d.type}
+                  </div>
+                </div>
+                <div className="shrink-0 pt-0.5">
+                  <Pill tone={d.online ? "stable" : "critical"}>
+                    {d.online ? "Online" : "Offline"}
+                  </Pill>
+                </div>
+              </div>
+            ))}
           </div>
+        </CardBody>
+      </Card>
+
+      {/* Subscription */}
+      <div>
+        <div className="mb-3">
+          <h2 className="text-base font-semibold tracking-tight text-ink">Subscription</h2>
+          <p className="mt-0.5 text-sm text-ink-mute">
+            Plans that scale from one family to a full care team.
+          </p>
         </div>
-      </section>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {/* Family */}
+          <Card>
+            <CardBody className="flex h-full flex-col">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-ink">LivePrevent Family</div>
+                  <div className="mt-0.5 text-xs text-ink-mute">
+                    For families watching over one person
+                  </div>
+                </div>
+                <Pill tone="brand">Current plan</Pill>
+              </div>
+              <div className="mt-4 flex items-baseline gap-1.5">
+                <span className="text-2xl font-semibold tracking-tight text-ink tabular-nums">
+                  US$12
+                </span>
+                <span className="text-sm text-ink-mute">/ month</span>
+              </div>
+              <ul className="mt-4 space-y-2">
+                <PlanBullet>1 person monitored</PlanBullet>
+                <PlanBullet>2 family accounts</PlanBullet>
+                <PlanBullet>30-day trend history</PlanBullet>
+                <PlanBullet>Weekly AI summary</PlanBullet>
+              </ul>
+            </CardBody>
+          </Card>
+
+          {/* Care */}
+          <Card>
+            <CardBody className="flex h-full flex-col">
+              <div>
+                <div className="text-sm font-semibold text-ink">LivePrevent Care</div>
+                <div className="mt-0.5 text-xs text-ink-mute">
+                  For care teams and providers
+                </div>
+              </div>
+              <div className="mt-4 flex items-baseline gap-1.5">
+                <span className="text-2xl font-semibold tracking-tight text-ink tabular-nums">
+                  US$49
+                </span>
+                <span className="text-sm text-ink-mute">/ month</span>
+              </div>
+              <ul className="mt-4 space-y-2">
+                <PlanBullet>Unlimited people</PlanBullet>
+                <PlanBullet>Unlimited family accounts</PlanBullet>
+                <PlanBullet>90-day trend history</PlanBullet>
+                <PlanBullet>Full AI summaries</PlanBullet>
+                <PlanBullet>Care Dashboard access</PlanBullet>
+              </ul>
+              <div className="mt-4 pt-2">
+                <Button variant="secondary" disabled>
+                  Talk to us
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

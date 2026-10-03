@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getStore } from "@/lib/demo/store";
-import { advance } from "@/lib/demo/engine";
-import { buildSnapshot } from "@/lib/demo/snapshot";
+import { getStore } from "@/server/store";
+import { advance } from "@/server/engine";
+import { buildSnapshot } from "@/server/snapshot";
 
 export const dynamic = "force-dynamic";
 

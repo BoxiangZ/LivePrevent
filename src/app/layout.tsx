@@ -1,55 +1,53 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
-import { DemoProvider } from "@/components/DemoProvider";
-import { CriticalBanner } from "@/components/CriticalBanner";
-import { DemoPanel } from "@/components/DemoPanel";
+import { DemoProvider } from "@/client/provider/DemoProvider";
+import { CriticalBanner } from "@/client/components/CriticalBanner";
+import { DemoControls } from "@/client/components/DemoControls";
+import { NavLinks } from "@/client/components/NavLinks";
 
 export const metadata: Metadata = {
-  title: "LivePrevent",
+  title: "LivePrevent — Calm home monitoring for aging in place",
   description:
-    "AI-assisted home monitoring and alerting for aging in place. 辅助监测与提示工具，不提供医疗诊断，不替代紧急呼叫服务。",
+    "LivePrevent learns an older adult's personal baseline and flags meaningful deviations early. An assistive monitoring tool — not a medical device, not an emergency service.",
 };
-
-const NAV = [
-  { href: "/overview", label: "Overview" },
-  { href: "/alerts", label: "Alerts" },
-  { href: "/elders/sub_mum", label: "Mum" },
-  { href: "/board", label: "Board (Phase 2)" },
-  { href: "/settings", label: "Settings" },
-];
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
-      <body className="min-h-screen bg-gray-50 text-gray-900">
+    <html lang="en">
+      <body className="min-h-screen bg-surface-soft font-sans text-ink antialiased">
         <DemoProvider>
-          <header className="sticky top-0 z-30 border-b border-gray-200 bg-white">
-            <div className="mx-auto flex max-w-5xl items-center gap-6 px-4 py-3">
-              <Link href="/overview" className="text-lg font-bold tracking-tight">
-                Live<span className="text-indigo-600">Prevent</span>
+          <header className="sticky top-0 z-30 border-b border-surface-line bg-white/90 backdrop-blur">
+            <div className="mx-auto flex max-w-6xl items-center gap-8 px-4 py-3 sm:px-6">
+              <Link href="/overview" className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-sm font-bold text-white">
+                  LP
+                </span>
+                <span className="text-[17px] font-semibold tracking-tight text-ink">
+                  LivePrevent
+                </span>
               </Link>
-              <nav className="flex gap-1 text-sm">
-                {NAV.map((n) => (
-                  <Link
-                    key={n.href}
-                    href={n.href}
-                    className="rounded-md px-3 py-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                  >
-                    {n.label}
-                  </Link>
-                ))}
-              </nav>
-              <span className="ml-auto hidden text-[11px] text-gray-400 md:block">
-                辅助监测与提示工具 · 不替代紧急呼叫服务
-              </span>
+              <NavLinks />
+              <div className="ml-auto hidden items-center gap-2 text-[11px] text-ink-mute md:flex">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-stable" />
+                Monitoring Margaret Chan · Hong Kong
+              </div>
             </div>
           </header>
           <CriticalBanner />
-          <main className="pb-20">{children}</main>
-          <DemoPanel />
+          <main className="mx-auto max-w-6xl px-4 pb-24 pt-6 sm:px-6">{children}</main>
+          <footer className="border-t border-surface-line bg-white py-6">
+            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 text-xs text-ink-mute sm:px-6">
+              <span>
+                LivePrevent is an assistive monitoring tool — it does not provide medical diagnosis
+                and does not replace emergency services.
+              </span>
+              <span>Privacy-first: behaviour, not video.</span>
+            </div>
+          </footer>
+          <DemoControls />
         </DemoProvider>
       </body>
     </html>

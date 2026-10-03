@@ -7,6 +7,10 @@ import type { Role } from "./subject";
 
 export const AUDIT_ACTIONS = [
   // 同意与权限 — PRD §8.1 / §8.3
+  "person_created",
+  "person_removed",
+  "person_restored",
+  "care_outcome_recorded",
   "consent_granted",
   "consent_revoked",
   "consent_narrowed",

@@ -1,6 +1,6 @@
 # LivePrevent desktop API contract — v3
 
-Implementation contract, 2026-10-03. Product design: [PRODUCT_EXPERIENCE_AND_API.md](PRODUCT_EXPERIENCE_AND_API.md). This document describes implemented routes; it replaces the v2 contract. This is a single-process, local sample workspace, with optional real Kimi inference. It is not a production account, device-ingestion or notification service.
+Implementation contract, 2026-10-03. Product design: [PRODUCT_EXPERIENCE_AND_API.md](PRODUCT_EXPERIENCE_AND_API.md). This document describes implemented routes; it replaces the v2 contract. This is a single-process, local sample workspace, with optional real Kimi inference. It is not a production account or real device-ingestion service. Optional Resend integration sends real email when explicitly enabled per person; other notification channels remain simulated.
 
 ## Shared validation and access
 
@@ -29,9 +29,9 @@ Success: `{schemaVersion:"3",requestId,generatedAt,data}`. Errors: `{code,messag
 | Assessment list | `GET people/:id/assessments`: full `Assessment[]`, newest created first. List derives observation time, kind, progress and source from `input`, `status`, `stage`, `finding`, `createdAt`. This local version has no list pagination. |
 | New assessment | `GET assessment-options`: scenarios and observation kinds with labels/types; `limits{sensorBytes,videoBytes,videoSeconds,retentionHours}`; `videoAvailable,videoMessage`. Inputs and outputs below. |
 | Assessment result | `GET assessments/:id`: `assessmentId,personId,input,status,stage,createdAt,updatedAt,startedAt?,completedAt?,attempt,error?,retryable,finding?`. Findings listed below. |
-| Settings | `GET/PATCH people/:id/settings`: `personId,subject{alias,displayName,age?,timeZone,monitoringPaused},contacts[],devices[],subscription,consent,policy{retentionHours,workspaceMode},version`. Exact nested fields in settings schema. Consent and phone verification are read-only; contact account binding is server-controlled. Contact order is derived from array order. The current account contact must remain present. |
+| Settings | `GET/PATCH people/:id/settings`: `personId,subject{alias,displayName,age?,timeZone,monitoringPaused},contacts[],devices[],subscription,consent,policy{retentionHours,workspaceMode},version`. Exact nested fields in settings schema. Consent and phone verification are read-only; contact account binding is server-controlled. Settings now includes `profile`, `monitoring` and per-contact email/phone/relationship/role/subscriptions. Heartbeat timestamps do not affect the settings edit version. Contact order is derived from array order. The current account contact must remain present. |
 
-All paths in tables are relative to `/api/v3`. No plan/billing/invitation UI is retained, so no placeholder plan API is advertised. `/setup` uses the same Settings editor; `/care-network` redirects there. Developer tools stay at `/demo-studio` outside family navigation.
+All paths in tables are relative to `/api/v3`. People/profile management is described in [MONITORING_ITERATION.md](MONITORING_ITERATION.md). No plan/billing/invitation UI is retained, so no placeholder plan API is advertised. `/setup` uses the same Settings editor; `/care-network` redirects there. Developer tools stay at `/demo-studio` outside family navigation.
 
 Additional read endpoints: `people/:id/devices`, `people/:id/history` (events), `people/:id/trends?window=7d|30d|90d` (trends/baselines/metricSummaries), `people/:id/alerts?status=all|active|resolved` (array), `people/:id/events/:eventId` (`event,alert?,assessment?,summary?`). These use the same snapshot fields. `alerts/:id/audit` and `/timeline` accept an offset `cursor` and return `{items,nextCursor}` in pages of 50. Event details work even without an alert.
 

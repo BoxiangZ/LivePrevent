@@ -1,3 +1,4 @@
+import { calendarDay } from "@/shared/date";
 /**
  * Demo dataset — deterministic synthetic data (seeded PRNG, identical after every reset).
  * Persona: Margaret Chan, 76, living independently in Hong Kong.
@@ -8,7 +9,11 @@ import { mulberry32 } from "@/shared/prng";
 import type { Subject } from "@/shared/types/subject";
 import type { Device } from "@/shared/types/device";
 import type { Contact } from "@/shared/types/alert";
-import type { BaselineEntry, TrendPoint, BaselineDeviation } from "@/shared/types/baseline";
+import type {
+  BaselineEntry,
+  TrendPoint,
+  BaselineDeviation,
+} from "@/shared/types/baseline";
 import type { MonitoredEvent } from "@/shared/types/event";
 import type { Alert, AlertSubscriptionSettings } from "@/shared/types/alert";
 import type { AuditLogEntry } from "@/shared/types/audit";
@@ -147,7 +152,7 @@ export function seedBaselines(learningSinceIso: string): BaselineEntry[] {
   }));
 }
 
-export const TREND_DAYS = 90;
+export const TREND_DAYS = 365;
 
 /**
  * 90-day deterministic trends.
@@ -165,7 +170,12 @@ const DECLINE: Record<TrendMetric, number> = {
   resting_hr: 0,
 };
 
-export function buildTrendSeries(metric: TrendMetric, days: number, endDate: Date): TrendPoint[] {
+export function buildTrendSeries(
+  metric: TrendMetric,
+  days: number,
+  endDate: Date,
+  timeZone = "Asia/Hong_Kong",
+): TrendPoint[] {
   const rng = mulberry32(hashSeed(metric));
   const median = BASELINE_MEDIANS[metric];
   const D = DECLINE[metric];
@@ -181,7 +191,7 @@ export function buildTrendSeries(metric: TrendMetric, days: number, endDate: Dat
     let value = median * factor * (1 + noise);
     if (metric === "activity" && i === 0) value = 2640; // today: -37% vs baseline
     points.push({
-      date: d.toISOString().slice(0, 10),
+      date: calendarDay(d, timeZone),
       metric,
       value: Math.round(value * 100) / 100,
       synthetic: true,
@@ -229,7 +239,7 @@ export function seedPastEvents(nowMs: number): SeededHistory {
     reason: Alert["resolveReason"],
     note: string | null,
     signals: MonitoredEvent["signals"],
-    devs: BaselineDeviation[]
+    devs: BaselineDeviation[],
   ): { event: MonitoredEvent; alert: Alert; entries: AuditLogEntry[] } => {
     const occurred = new Date(nowMs - daysAgo * dayMs);
     occurred.setHours(hour, minute, 0, 0);
@@ -237,7 +247,9 @@ export function seedPastEvents(nowMs: number): SeededHistory {
     const eventId = `evt_hist_${n}`;
     const alertId = `al_hist_${n}`;
     const ackAt = new Date(occurred.getTime() + 12 * 60 * 1000).toISOString();
-    const resolvedAt = new Date(occurred.getTime() + 40 * 60 * 1000).toISOString();
+    const resolvedAt = new Date(
+      occurred.getTime() + 40 * 60 * 1000,
+    ).toISOString();
     deviations[eventId] = devs;
 
     const event: MonitoredEvent = {
@@ -341,11 +353,18 @@ export function seedPastEvents(nowMs: number): SeededHistory {
     "false_positive",
     "Called the selected person — resting after a poor night. Confirmed OK.",
     [
-      { source: "watch_activity", description: "No meaningful movement for 2h 47m" },
+      {
+        source: "watch_activity",
+        description: "No meaningful movement for 2h 47m",
+      },
       { source: "watch_hr", description: "Heart rate within baseline" },
-      { source: "camera_motion", description: "Camera movement very low", withinCoverage: true },
+      {
+        source: "camera_motion",
+        description: "Camera movement very low",
+        withinCoverage: true,
+      },
     ],
-    [{ metric: "activity", direction: "down", relativeChange: -0.46 }]
+    [{ metric: "activity", direction: "down", relativeChange: -0.46 }],
   );
   const sleep = mk(
     2,
@@ -356,8 +375,13 @@ export function seedPastEvents(nowMs: number): SeededHistory {
     "watch",
     "other",
     "Sleep below baseline for several nights — monitoring.",
-    [{ source: "watch_sleep", description: "Sleep below personal baseline for 3 consecutive nights" }],
-    [{ metric: "sleep", direction: "down", relativeChange: -0.12 }]
+    [
+      {
+        source: "watch_sleep",
+        description: "Sleep below personal baseline for 3 consecutive nights",
+      },
+    ],
+    [{ metric: "sleep", direction: "down", relativeChange: -0.12 }],
   );
   const hr = mk(
     3,
@@ -369,10 +393,13 @@ export function seedPastEvents(nowMs: number): SeededHistory {
     "real_event_handled",
     "The selected person had been climbing stairs — heart rate recovered within minutes.",
     [
-      { source: "watch_hr", description: "Resting heart rate above personal baseline (64–73 bpm)" },
+      {
+        source: "watch_hr",
+        description: "Resting heart rate above personal baseline (64–73 bpm)",
+      },
       { source: "watch_worn", description: "Watch worn at time of event" },
     ],
-    [{ metric: "resting_hr", direction: "up", relativeChange: 0.19 }]
+    [{ metric: "resting_hr", direction: "up", relativeChange: 0.19 }],
   );
 
   return {
@@ -408,7 +435,9 @@ export function seedConsentAudit(nowIso: string): AuditLogEntry {
     action: "consent_granted",
     targetUserId: null,
     targetContactId: null,
-    detail: { scope: "smartwatch+camera; activity/heart_rate/sleep/event_metadata" },
+    detail: {
+      scope: "smartwatch+camera; activity/heart_rate/sleep/event_metadata",
+    },
     ip: null,
   };
 }

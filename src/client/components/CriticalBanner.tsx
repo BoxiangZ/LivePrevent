@@ -14,13 +14,16 @@ const EVENT_LABEL: Record<string, string> = {
   heart_rate_deviation: "Heart rate deviation",
   activity_drop: "Activity below baseline",
   device_data_gap: "Data gap",
+  general_check: "Check-in needed",
 };
 
 export function CriticalBanner() {
   const { snapshot, msUntil, ackAlert, busy } = useDemo();
   if (!snapshot?.activeCriticalAlertId) return null;
 
-  const alert = snapshot.alerts.find((a) => a.id === snapshot.activeCriticalAlertId);
+  const alert = snapshot.alerts.find(
+    (a) => a.id === snapshot.activeCriticalAlertId,
+  );
   if (!alert || alert.status === "resolved") return null;
 
   const nextMs = msUntil(alert.escalation.nextStageAt);
@@ -41,7 +44,9 @@ export function CriticalBanner() {
             {alert.status === "acknowledged" ? (
               "Acknowledged — follow-up in progress"
             ) : alert.escalation.unacknowledged ? (
-              <span className="font-medium">Unacknowledged — reminding all contacts</span>
+              <span className="font-medium">
+                Unacknowledged — reminding all contacts
+              </span>
             ) : nextMs !== null && nextMs > 0 ? (
               <>
                 Next escalation in <Countdown ms={nextMs} />
@@ -53,7 +58,9 @@ export function CriticalBanner() {
         </div>
         {alert.status === "open" && primary && (
           <button
-            onClick={() => { void ackAlert(alert.id).catch(() => undefined); }}
+            onClick={() => {
+              void ackAlert(alert.id).catch(() => undefined);
+            }}
             disabled={busy}
             className="rounded-lg bg-white px-3 py-1.5 text-sm font-semibold text-critical hover:bg-white/90 disabled:opacity-50"
           >

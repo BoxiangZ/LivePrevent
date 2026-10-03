@@ -1,4 +1,5 @@
 "use client";
+import { statusLabels } from "@/shared/contracts/monitoring";
 import { use, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { z } from "zod";
@@ -77,13 +78,25 @@ export default function Result({
   const f = result?.finding;
   const concern = result?.input.primaryConcern;
   const rankedFindings = [...(f?.findings ?? [])].sort((a, b) => {
-    const rank = { critical: 4, important: 3, watch: 2, stable: 1, unknown: 0, paused: 0 };
+    const rank = {
+      critical: 4,
+      important: 3,
+      watch: 2,
+      stable: 1,
+      unknown: 0,
+      paused: 0,
+    };
     if (concern && (a.category === concern) !== (b.category === concern))
       return Number(b.category === concern) - Number(a.category === concern);
     return rank[b.status] - rank[a.status];
   });
-  const urgentFinding = concern ? f?.findings?.find((item) =>
-    item.category !== concern && ["important", "critical"].includes(item.status)) : undefined;
+  const urgentFinding = concern
+    ? f?.findings?.find(
+        (item) =>
+          item.category !== concern &&
+          ["important", "critical"].includes(item.status),
+      )
+    : undefined;
   return (
     <div className="mx-auto max-w-4xl space-y-6">
       <Link className="text-sm text-ink-mute" href="/assessments">
@@ -165,23 +178,29 @@ export default function Result({
                   Current assessment ·{" "}
                   {f.displayStatus === "unknown"
                     ? "Unable to determine"
-                    : f.displayStatus}
+                    : statusLabels[f.displayStatus]}
                 </p>
                 <h2 className="mt-3 text-2xl font-semibold">{f.headline}</h2>
                 <p className="mt-4 text-ink-soft">{f.plainSummary}</p>
                 {concern && (
                   <p className="mt-3 text-sm text-ink-mute">
-                    Primary concern: {concern.replaceAll("_", " ")}. All supplied evidence was reviewed.
+                    Primary concern: {concern.replaceAll("_", " ")}. All
+                    supplied evidence was reviewed.
                   </p>
                 )}
-                {concern && !rankedFindings.some((item) => item.category === concern) && (
-                  <p className="mt-2 text-sm text-ink-mute">
-                    No relevant evidence was available to assess the primary concern.
-                  </p>
-                )}
+                {concern &&
+                  !rankedFindings.some((item) => item.category === concern) && (
+                    <p className="mt-2 text-sm text-ink-mute">
+                      No relevant evidence was available to assess the primary
+                      concern.
+                    </p>
+                  )}
                 {urgentFinding && (
                   <div className="mt-4 rounded-xl border border-critical bg-red-50 p-4 text-sm">
-                    <strong>Priority finding: {urgentFinding.category.replaceAll("_", " ")}</strong>
+                    <strong>
+                      Priority finding:{" "}
+                      {urgentFinding.category.replaceAll("_", " ")}
+                    </strong>
                     <p className="mt-1">{urgentFinding.summary}</p>
                     <p className="mt-1">{urgentFinding.recommendedAction}</p>
                   </div>
@@ -190,18 +209,41 @@ export default function Result({
                   <div className="mt-5 space-y-3">
                     <h3 className="font-semibold">What we found</h3>
                     {rankedFindings.map((item, index) => (
-                      <article key={index} className="rounded-xl border border-surface-line p-4">
+                      <article
+                        key={index}
+                        className="rounded-xl border border-surface-line p-4"
+                      >
                         <p className="text-sm font-semibold">
-                          {item.category.replaceAll("_", " ")} · {item.status === "unknown" ? "Unable to determine" : item.status}
-                          {item.category === concern ? " · Primary concern" : ""}
+                          {item.category.replaceAll("_", " ")} ·{" "}
+                          {item.status === "unknown"
+                            ? "Unable to determine"
+                            : statusLabels[item.status]}
+                          {item.category === concern
+                            ? " · Primary concern"
+                            : ""}
                         </p>
-                        <p className="mt-2 text-sm text-ink-soft">{item.summary}</p>
-                        <p className="mt-2 text-sm"><strong>Next step:</strong> {item.recommendedAction}</p>
-                        {(item.supportingEvidence.length > 0 || item.conflictingEvidence.length > 0) && (
+                        <p className="mt-2 text-sm text-ink-soft">
+                          {item.summary}
+                        </p>
+                        <p className="mt-2 text-sm">
+                          <strong>Next step:</strong> {item.recommendedAction}
+                        </p>
+                        {(item.supportingEvidence.length > 0 ||
+                          item.conflictingEvidence.length > 0) && (
                           <details className="mt-2 text-sm text-ink-soft">
-                            <summary className="cursor-pointer">Evidence and conflicts</summary>
-                            {item.supportingEvidence.map((entry, i) => <p className="mt-1" key={`support-${i}`}>Supports: {entry}</p>)}
-                            {item.conflictingEvidence.map((entry, i) => <p className="mt-1" key={`conflict-${i}`}>Conflicts: {entry}</p>)}
+                            <summary className="cursor-pointer">
+                              Evidence and conflicts
+                            </summary>
+                            {item.supportingEvidence.map((entry, i) => (
+                              <p className="mt-1" key={`support-${i}`}>
+                                Supports: {entry}
+                              </p>
+                            ))}
+                            {item.conflictingEvidence.map((entry, i) => (
+                              <p className="mt-1" key={`conflict-${i}`}>
+                                Conflicts: {entry}
+                              </p>
+                            ))}
                           </details>
                         )}
                       </article>
@@ -255,13 +297,18 @@ export default function Result({
                 </details>
                 {result.input.note && (
                   <details className="mt-3 text-sm">
-                    <summary className="cursor-pointer">Original additional context</summary>
-                    <p className="mt-2 whitespace-pre-wrap text-ink-soft">{result.input.note}</p>
+                    <summary className="cursor-pointer">
+                      Original additional context
+                    </summary>
+                    <p className="mt-2 whitespace-pre-wrap text-ink-soft">
+                      {result.input.note}
+                    </p>
                   </details>
                 )}
                 {result.input.videoObservedAt && (
                   <p className="mt-3 text-sm text-ink-mute">
-                    Video recording start: {new Date(result.input.videoObservedAt).toLocaleString()}
+                    Video recording start:{" "}
+                    {new Date(result.input.videoObservedAt).toLocaleString()}
                   </p>
                 )}
                 {f.video && (

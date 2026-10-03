@@ -1,4 +1,5 @@
 "use client";
+import { statusLabels } from "@/shared/contracts/monitoring";
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { z } from "zod";
@@ -201,6 +202,21 @@ export default function Event({ params }: { params: Promise<{ id: string }> }) {
                 ? "AI-generated explanation"
                 : "Rule-based explanation · model summary unavailable"}
             </p>
+            <button
+              className="btn-secondary mt-4"
+              disabled={busy}
+              onClick={async () => {
+                try {
+                  await requestKimiSummary(id);
+                } catch (e) {
+                  setError(
+                    e instanceof Error ? e.message : "Explanation unavailable",
+                  );
+                }
+              }}
+            >
+              Generate contextual explanation
+            </button>
           </>
         ) : (
           <button
@@ -226,19 +242,47 @@ export default function Event({ params }: { params: Promise<{ id: string }> }) {
             Notifications · {notifications.length}
           </summary>
           {notifications.map((n) => (
-            <button
-              className="mt-3 flex w-full justify-between rounded-lg bg-surface-soft p-3 text-left text-sm"
-              key={n.id}
-              onClick={() => setPreview(n)}
-            >
-              <span>
-                {n.contactName} · {n.channel}
-              </span>
-              <span>
-                {n.simulated ? "Simulated notification" : n.deliveryStatus} ·
-                View
-              </span>
-            </button>
+            <div key={n.id}>
+              <button
+                className="mt-3 flex w-full justify-between rounded-lg bg-surface-soft p-3 text-left text-sm"
+                key={n.id}
+                onClick={() => setPreview(n)}
+              >
+                <span>
+                  {n.contactName} · {n.channel}
+                </span>
+                <span>
+                  {n.simulated ? "Simulated notification" : n.deliveryStatus} ·
+                  View
+                </span>
+              </button>
+              {n.error && (
+                <p className="mt-1 text-xs text-critical">{n.error}</p>
+              )}
+              {!n.simulated &&
+                n.deliveryStatus === "failed" &&
+                alert?.status === "open" && (
+                  <button
+                    className="mt-2 text-sm text-brand-600"
+                    onClick={async () => {
+                      try {
+                        await api(
+                          `notifications/${n.id}/retry`,
+                          z.object({ ok: z.boolean() }),
+                          { method: "POST" },
+                        );
+                        setError("");
+                      } catch (e) {
+                        setError(
+                          e instanceof Error ? e.message : "Retry failed",
+                        );
+                      }
+                    }}
+                  >
+                    Retry email
+                  </button>
+                )}
+            </div>
           ))}
         </details>
       )}
@@ -256,7 +300,7 @@ export default function Event({ params }: { params: Promise<{ id: string }> }) {
         </ul>
         {alert?.levelHistory.map((h, i) => (
           <p key={i} className="mt-2 text-xs text-ink-mute">
-            {new Date(h.at).toLocaleString()} · {h.level} ·{" "}
+            {new Date(h.at).toLocaleString()} · {statusLabels[h.level]} ·{" "}
             {h.trigger.replaceAll("_", " ")}
           </p>
         ))}

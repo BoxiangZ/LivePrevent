@@ -12,8 +12,8 @@ src/
 │   └── labels.ts    Enum → human-readable label maps used by server
 │
 ├── server/          Node-only. NEVER import this from client components.
-│   ├── store.ts     In-memory demo store (globalThis singleton, HMR-safe)
-│   ├── engine.ts    State advancement: recovery window, escalation, auto-expire
+│   ├── store.ts     SQLite person repository and migration of persisted sample state
+│   ├── engine.ts    State advancement: recovery window, notification queue, escalation, auto-expire
 │   ├── inject.ts    Demo scenario injectors (simulate fall / inactivity)
 │   ├── snapshot.ts  Server → client DTO builder (what /api/demo/state returns)
 │   ├── jev/         Risk-level decision engine (the only component that sets levels)
@@ -23,7 +23,7 @@ src/
 │
 ├── client/          Browser-only React. "use client" components, hooks, context.
 │   ├── components/  Reusable UI (HeroStatus, TrendsGrid, AlertCard, ui.tsx…)
-│   ├── provider/    DemoProvider — 500ms polling of /api/demo/state, global state
+│   ├── provider/    DemoProvider — 5s polling of /api/v3/people/:id/snapshot, global state
 │   ├── hooks/       (custom hooks)
 │   └── cn.ts        className merge helper
 │
@@ -72,9 +72,9 @@ client/provider/DemoProvider ◄──GET /api/demo/state── advance(store) �
    useDemo() → any page
 ```
 
-- One in-memory store per server process (`globalThis`), seeded deterministically on first access.
-- `advance(store, nowMs)` is a pure-ish function called lazily at each API entry — no `setInterval`.
-- The client polls every 500 ms and renders from the snapshot; countdowns use the snapshot's `nowMs` to avoid clock skew.
+- SQLite stores people in `liveprevent.sqlite`; sessions, media metadata and assessments in `assessments.sqlite`. Both live under the private data directory.
+- The one-second worker drives simulated heartbeats, longitudinal review, alert advancement, the email queue, upload expiry and persisted assessment jobs. API actions also advance state when necessary.
+- The client polls every 5 seconds and renders from the snapshot; countdowns use the snapshot's `nowMs` to avoid clock skew.
 - Kimi is only ever a *summarizer*: it receives de-identified structured facts, its output is numerically validated, and alerts never wait for it (template fallback on any failure).
 
 ## The two-phase fall flow (the core demo)
@@ -85,3 +85,15 @@ client/provider/DemoProvider ◄──GET /api/demo/state── advance(store) �
 4. Any authorized contact acknowledges → escalation stops. Resolve requires a reason; Critical requires ack first.
 
 Everything above is demo-visible: the recovery-window banner on Overview, the level history on the event page, the escalation timeline, the email preview with the one-time secure link.
+
+## Configurable monitoring iteration
+
+- `server/monitoring.ts`: heartbeat input adapter and the 15-minute monitoring status. Unknown is independent from risk; existing Critical wins.
+- `server/simulator.ts`: deterministic inputs through JEV, shared event/alert records and escalation.
+- `server/notifications/email.ts`: durable notification records, provider acceptance, bounded retries and Resend idempotency. Async calls re-read current person state before saving.
+- `server/longitudinal.ts`: dated metrics, reported-baseline learning, versioned multi-area trend checks, care recommendations/outcomes and permitted AI context.
+- `server/v3/people.ts`: empty person creation; recoverable removal/restore is managed by the repository and v3 route. Session bindings resolve current active people dynamically.
+- `shared/contracts/monitoring.ts`: profile, monitoring, contact preferences, person creation, evolution and care outcome schemas.
+- `client/components/MonitoringStatus.tsx`, `HealthProfileEditor.tsx`, `HealthEvolution.tsx`: prominent status, editable context and actionable history.
+
+The worker uses leases for assessment work and email delivery. This remains a single-process local account; production identity, verified inbox delivery, SMS, continuous camera/watch ingestion and multi-tenant care institutions are separate work.

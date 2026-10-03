@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  healthProfileSchema,
+  monitoringSchema,
+  contactDetails,
+} from "./monitoring";
 import { id, iso } from "./assessment";
 export const zone = z.string().refine((v) => {
   try {
@@ -12,6 +17,8 @@ const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 export const settingsSchema = z
   .object({
     personId: id,
+    profile: healthProfileSchema.optional(),
+    monitoring: monitoringSchema.optional(),
     subject: z.object({
       alias: z.string().trim().min(1).max(60),
       displayName: z.string().trim().min(1).max(100),
@@ -26,11 +33,12 @@ export const settingsSchema = z
           subjectId: id,
           userId: id.nullable(),
           name: z.string().trim().min(1).max(100),
+          ...contactDetails,
           escalationOrder: z.number().int().positive(),
           timeZone: zone,
           channels: z
             .array(z.enum(["email", "sms", "push", "voice_call"]))
-            .min(1),
+            .max(4),
           phoneVerified: z.boolean(),
           quietHours: z.object({ start: time, end: time }).nullable(),
         }),
@@ -71,5 +79,9 @@ export const settingsSchema = z
   .refine(
     (v) => new Set(v.contacts.map((c) => c.id)).size === v.contacts.length,
     { path: ["contacts"], message: "Contacts must have unique IDs" },
-  );
+  )
+  .refine((v) => !v.monitoring?.emailEnabled || !!v.contacts[0]?.email, {
+    path: ["contacts"],
+    message: "Enter the primary contact email before enabling email alerts",
+  });
 export type Settings = z.infer<typeof settingsSchema>;

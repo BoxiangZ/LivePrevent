@@ -36,51 +36,29 @@ export function renderEmailTemplate(ctx: TemplateContext): RenderedMessage {
   const category = EVENT_TYPE_LABELS[ctx.alert.eventType];
   const alias = ctx.subject.alias;
 
-  if (ctx.alert.level === "critical") {
-    return {
-      channel: "email",
-      subject: `[CRITICAL] LivePrevent — Possible fall detected for ${alias}`,
-      body: [
-        "LivePrevent detected an event that may need immediate attention.",
-        "",
-        `Priority:  CRITICAL`,
-        `Event:     ${category}`,
-        `Time:      ${ctx.occurredAtLocal}`,
-        "",
-        "Supporting signals:",
-        "  • Camera detected a fall posture",
-        "  • Watch detected a sudden impact",
-        "  • Heart rate elevated above personal baseline",
-        "  • No recovery movement detected",
-        "",
-        "Recommended action:",
-        `  Call ${alias} immediately. If unreachable, check on her or`,
-        "  contact local emergency services.",
-        "",
-        `[ Review & acknowledge ]   ${ctx.secureLink ?? "(sign in required)"}`,
-        `(one-time secure link, expires in ${CRITICAL_LINK_TTL_MIN} minutes)`,
-        "",
-        "If no one acknowledges within 5 minutes, the next contact on your",
-        "care network will be notified.",
-        "",
-        EMERGENCY_DISCLAIMER,
-      ].join("\n"),
-    };
-  }
-
   return {
     channel: "email",
-    subject: `[${levelLabel}] LivePrevent — ${category} for ${alias}`,
+    subject: `[${levelLabel}] LivePrevent — ${ctx.alert.level === "critical" ? "Immediate check-in recommended" : "Review recommended"} for ${alias}`,
     body: [
-      `LivePrevent noticed a meaningful change from ${alias}'s usual pattern.`,
+      ctx.alert.level === "critical"
+        ? "LivePrevent recorded a high-priority change. Please check in immediately."
+        : "LivePrevent recorded a change. Please review and consider checking in.",
       "",
-      `Priority:  ${RISK_LEVEL_META[ctx.alert.level].label}`,
-      `Event:     ${category}`,
-      `Time:      ${ctx.occurredAtLocal}`,
+      `Person: ${alias}`,
+      `Priority: ${levelLabel}`,
+      `Event: ${category}`,
+      `Time: ${ctx.occurredAtLocal}`,
       "",
-      "Consider checking in with her. Full details are available after you sign in.",
+      "This workspace uses simulated monitoring inputs and user-submitted observations.",
+      "Full evidence and recommended next steps are available after sign-in.",
+      ctx.secureLink
+        ? `Review & acknowledge: ${ctx.secureLink}`
+        : "View the event in LivePrevent after sign-in.",
+      ...(ctx.secureLink
+        ? [`One-time link expires in ${CRITICAL_LINK_TTL_MIN} minutes.`]
+        : []),
       "",
-      "[ View details ]",
+      ...(ctx.alert.level === "critical" ? [EMERGENCY_DISCLAIMER] : []),
     ].join("\n"),
   };
 }
@@ -92,7 +70,9 @@ export function renderSmsTemplate(ctx: TemplateContext): RenderedMessage {
     `[${levelLabel}] LivePrevent: ${category} — "${ctx.subject.alias}" at ${ctx.occurredAtLocal}.`,
   ];
   if (ctx.alert.level === "critical") {
-    lines.push(`Review & acknowledge: ${ctx.secureLink ?? "open LivePrevent"} (expires ${CRITICAL_LINK_TTL_MIN} min).`);
+    lines.push(
+      `Review & acknowledge: ${ctx.secureLink ?? "open LivePrevent"} (expires ${CRITICAL_LINK_TTL_MIN} min).`,
+    );
     lines.push(EMERGENCY_DISCLAIMER);
   } else {
     lines.push("Details after sign-in.");
@@ -114,11 +94,18 @@ export function renderPushTemplate(ctx: TemplateContext): RenderedMessage {
 }
 
 /** 按联系人配置的渠道渲染（voice_call 为 Phase 2，不渲染） */
-export function renderForContact(ctx: TemplateContext, contact: Contact): RenderedMessage[] {
+export function renderForContact(
+  ctx: TemplateContext,
+  contact: Contact,
+): RenderedMessage[] {
   return contact.channels
     .filter((c) => c === "email" || c === "sms" || c === "push")
     .map((c) =>
-      c === "email" ? renderEmailTemplate(ctx) : c === "sms" ? renderSmsTemplate(ctx) : renderPushTemplate(ctx)
+      c === "email"
+        ? renderEmailTemplate(ctx)
+        : c === "sms"
+          ? renderSmsTemplate(ctx)
+          : renderPushTemplate(ctx),
     );
 }
 
@@ -137,7 +124,9 @@ export function assertMinimalContent(rendered: RenderedMessage): void {
   ];
   for (const re of forbidden) {
     if (re.test(text)) {
-      throw new Error(`Notification violates minimal-content rule (PRD §7.1): matched ${re}`);
+      throw new Error(
+        `Notification violates minimal-content rule (PRD §7.1): matched ${re}`,
+      );
     }
   }
 }

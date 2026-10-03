@@ -7,8 +7,16 @@
 
 import Link from "next/link";
 import { use, useEffect } from "react";
+import { MonitoringStatus } from "@/client/components/MonitoringStatus";
+import { HealthEvolution } from "@/client/components/HealthEvolution";
 import { useDemo } from "@/client/provider/DemoProvider";
-import { Card, CardBody, CardHeader, EmptyState, SectionTitle } from "@/client/components/ui";
+import {
+  Card,
+  CardBody,
+  CardHeader,
+  EmptyState,
+  SectionTitle,
+} from "@/client/components/ui";
 import { RiskBadge } from "@/client/components/RiskBadge";
 import { PersonalBaseline } from "@/client/components/PersonalBaseline";
 import { Sparkline } from "@/client/components/TrendsGrid";
@@ -16,7 +24,12 @@ import { cn } from "@/client/cn";
 import type { MetricSummary } from "@/server/snapshot";
 import type { TrendMetric } from "@/shared/types/event";
 
-const METRIC_ORDER: TrendMetric[] = ["activity", "resting_hr", "sleep", "mobility"];
+const METRIC_ORDER: TrendMetric[] = [
+  "activity",
+  "resting_hr",
+  "sleep",
+  "mobility",
+];
 
 const EVENT_TITLES: Record<string, string> = {
   possible_fall: "Possible fall",
@@ -63,7 +76,9 @@ export default function PersonDetailPage({
 }) {
   const { id } = use(params);
   const { snapshot, selectedPersonId, selectPerson } = useDemo();
-  useEffect(() => { if (id !== selectedPersonId) selectPerson(id); }, [id, selectedPersonId, selectPerson]);
+  useEffect(() => {
+    if (id !== selectedPersonId) selectPerson(id);
+  }, [id, selectedPersonId, selectPerson]);
 
   if (!snapshot) {
     return (
@@ -96,13 +111,52 @@ export default function PersonDetailPage({
             Person details
           </h1>
           <p className="mt-0.5 text-sm text-ink-mute">
-            {snapshot.subject.age !== null ? `Age ${snapshot.subject.age} · ` : ""}
+            {snapshot.subject.age !== null
+              ? `Age ${snapshot.subject.age} · `
+              : ""}
             Time zone: {snapshot.subject.timeZone}
           </p>
         </div>
-        <RiskBadge level={snapshot.overallLevel} />
+        <Link className="btn-secondary" href="/settings">
+          Edit health profile
+        </Link>
       </div>
 
+      <MonitoringStatus
+        status={snapshot.displayStatus}
+        monitoring={snapshot.monitoring}
+      />
+      <section className="panel">
+        <h2 className="font-semibold">
+          {snapshot.subject.name} · Health context
+        </h2>
+        {snapshot.profile.photo && (
+          <img
+            src={snapshot.profile.photo}
+            alt="Person profile"
+            className="mt-3 h-20 w-20 rounded-xl object-cover"
+          />
+        )}
+        <p className="mt-3 text-sm text-ink-soft">
+          {snapshot.profile.knownConditions.join(", ") ||
+            "No conditions recorded"}
+          {snapshot.profile.mobilityIssues &&
+            ` · ${snapshot.profile.mobilityIssues}`}
+          {snapshot.profile.walkingAid &&
+            ` · Walking aid: ${snapshot.profile.walkingAid}`}
+        </p>
+        <p className="mt-2 text-sm text-ink-soft">
+          {snapshot.profile.livingSituation || "Living situation not recorded"}
+        </p>
+        <p className="mt-2 text-xs text-ink-mute">
+          {snapshot.profile.medications.length} medications recorded · Health
+          background{" "}
+          {snapshot.profile.shareWithAi
+            ? "available to Kimi for explanations"
+            : "kept local"}
+        </p>
+      </section>
+      <HealthEvolution key={id} personId={id} />
       {/* Health areas */}
       <section>
         <SectionTitle
@@ -139,17 +193,22 @@ export default function PersonDetailPage({
           <CardBody>
             <ul className="divide-y divide-surface-line">
               {snapshot.deviceDetails.map((d) => (
-                <li key={d.id} className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                <li
+                  key={d.id}
+                  className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0"
+                >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <span
                         className={cn(
                           "inline-block h-2 w-2 rounded-full",
-                          d.online ? "bg-stable" : "bg-critical"
+                          d.online ? "bg-stable" : "bg-critical",
                         )}
                         aria-label={d.online ? "Online" : "Offline"}
                       />
-                      <span className="text-sm font-medium text-ink">{d.label}</span>
+                      <span className="text-sm font-medium text-ink">
+                        {d.label}
+                      </span>
                       <span className="text-xs text-ink-mute">{d.type}</span>
                     </div>
                     <div className="mt-1 text-xs text-ink-mute">
@@ -174,7 +233,8 @@ export default function PersonDetailPage({
                           )}
                           {d.cameraMode === "edge_only" && (
                             <span className="ml-2">
-                              Device observations · optional assessment clips managed separately
+                              Device observations · optional assessment clips
+                              managed separately
                             </span>
                           )}
                         </>
@@ -187,7 +247,7 @@ export default function PersonDetailPage({
                   <span
                     className={cn(
                       "text-xs font-medium",
-                      d.online ? "text-stable" : "text-critical"
+                      d.online ? "text-stable" : "text-critical",
                     )}
                   >
                     {d.online ? "Online" : "Offline"}
@@ -215,7 +275,9 @@ export default function PersonDetailPage({
             ) : (
               <ul className="divide-y divide-surface-line">
                 {recentEvents.map((ev) => {
-                  const alert = snapshot.alerts.find((a) => a.eventId === ev.id);
+                  const alert = snapshot.alerts.find(
+                    (a) => a.eventId === ev.id,
+                  );
                   return (
                     <li key={ev.id} className="py-3 first:pt-0 last:pb-0">
                       <Link
@@ -245,7 +307,9 @@ export default function PersonDetailPage({
                               </span>
                             </>
                           ) : (
-                            <span className="text-xs text-ink-mute">No alert</span>
+                            <span className="text-xs text-ink-mute">
+                              No alert
+                            </span>
                           )}
                         </div>
                       </Link>
@@ -266,7 +330,12 @@ function MetricCard({
   points,
 }: {
   summary: MetricSummary;
-  points: Array<{ date: string; metric: TrendMetric; value: number; synthetic?: boolean }>;
+  points: Array<{
+    date: string;
+    metric: TrendMetric;
+    value: number;
+    synthetic?: boolean;
+  }>;
 }) {
   const metric = summary.metric;
   const delta = summary.deltaPct;
@@ -287,21 +356,35 @@ function MetricCard({
               <span className="text-sm text-ink-mute">{summary.unit}</span>
             </div>
           </div>
-          <div className={cn("text-right text-sm font-semibold tabular-nums", toneClass)}>
+          <div
+            className={cn(
+              "text-right text-sm font-semibold tabular-nums",
+              toneClass,
+            )}
+          >
             {delta !== null ? (
               <>
                 {delta > 0 ? "+" : ""}
                 {Math.round(delta * 100)}%
-                <div className="text-[10px] font-normal text-ink-mute">vs baseline</div>
+                <div className="text-[10px] font-normal text-ink-mute">
+                  vs baseline
+                </div>
               </>
             ) : (
-              <span className="text-xs font-normal text-ink-mute">Not enough data</span>
+              <span className="text-xs font-normal text-ink-mute">
+                Not enough data
+              </span>
             )}
           </div>
         </div>
 
         <div className="mt-3">
-          <Sparkline points={points} baseline={summary.baseline} metric={metric} height={56} />
+          <Sparkline
+            points={points}
+            baseline={summary.baseline}
+            metric={metric}
+            height={56}
+          />
         </div>
 
         <p className="mt-3 text-sm leading-relaxed text-ink-soft">

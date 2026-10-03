@@ -26,7 +26,11 @@ import {
   repeatReminderMs,
   stageAtMs,
 } from "@/server/alerts/escalation";
-import { renderEmailTemplate, renderSmsTemplate, renderPushTemplate } from "@/server/alerts/templates";
+import {
+  renderEmailTemplate,
+  renderSmsTemplate,
+  renderPushTemplate,
+} from "@/server/alerts/templates";
 import type { DemoStore } from "@/server/store";
 import { appendAudit, nextId } from "@/server/store";
 import type { Alert, Contact, EscalationStage } from "@/shared/types/alert";
@@ -66,7 +70,7 @@ export function sendNotification(
   contact: Contact,
   channel: NotificationChannel,
   nowIso: string,
-  kind: "initial" | "escalation" | "reminder"
+  kind: "initial" | "escalation" | "reminder",
 ): void {
   if (channel === "voice_call") return; // Phase 2 — PRD §6.1
 
@@ -80,7 +84,9 @@ export function sendNotification(
     const { token, hash } = makeToken(store);
     rawToken = token;
     tokenId = nextId(store, "ott");
-    tokenExpiresAt = new Date(Date.parse(nowIso) + CRITICAL_LINK_TTL_MIN * 60 * 1000).toISOString();
+    tokenExpiresAt = new Date(
+      Date.parse(nowIso) + CRITICAL_LINK_TTL_MIN * 60 * 1000,
+    ).toISOString();
     store.oneTimeTokens.push({
       id: tokenId,
       tokenHash: hash,
@@ -109,13 +115,17 @@ export function sendNotification(
         : renderPushTemplate(ctx);
 
   const notifId = nextId(store, "ntf");
+  const realEmail = channel === "email" && store.monitoring.emailEnabled;
   alert.notifications.push({
     id: notifId,
     alertId: alert.id,
     contactId: contact.id,
     channel,
     sentAt: nowIso,
-    deliveryStatus: "delivered", // 模拟发送：直接标记送达；真实环境需通道送达监控 — PRD §18
+    deliveryStatus: realEmail ? "pending" : "sent",
+    simulated: !realEmail,
+    recipientEmail: realEmail ? (contact.email ?? "") : undefined,
+    attempts: 0,
     oneTimeTokenId: tokenId,
     oneTimeTokenExpiresAt: tokenExpiresAt,
   });
@@ -140,20 +150,42 @@ function notifyContactAllChannels(
   alert: Alert,
   contact: Contact,
   nowIso: string,
-  kind: "initial" | "escalation" | "reminder"
+  kind: "initial" | "escalation" | "reminder",
 ): void {
-  for (const ch of contact.channels) {
+  const channels =
+    alert.level === "critical" && contact.escalationOrder === 1
+      ? [...new Set<NotificationChannel>(["email", ...contact.channels])]
+      : contact.channels;
+  if (
+    alert.level === "critical" &&
+    contact.escalationOrder !== 1 &&
+    contact.subscriptions?.critical === false
+  )
+    return;
+  for (const ch of channels) {
     sendNotification(store, alert, contact, ch, nowIso, kind);
   }
 }
 
 /** 启动 Critical 升级链（T+0） */
-export function startEscalation(store: DemoStore, alert: Alert, nowMs: number): void {
+export function startEscalation(
+  store: DemoStore,
+  alert: Alert,
+  nowMs: number,
+): void {
   const nowIso = new Date(nowMs).toISOString();
-  alert.escalation = computeEscalationSchedule(alert.id, alert.subjectId, nowMs, DEMO_TIME_SCALE);
-  const sorted = [...store.contacts].sort((a, b) => a.escalationOrder - b.escalationOrder);
+  alert.escalation = computeEscalationSchedule(
+    alert.id,
+    alert.subjectId,
+    nowMs,
+    DEMO_TIME_SCALE,
+  );
+  const sorted = [...store.contacts].sort(
+    (a, b) => a.escalationOrder - b.escalationOrder,
+  );
   const { notify } = contactsForStage("t0_notify_primary", sorted);
-  for (const c of notify) notifyContactAllChannels(store, alert, c, nowIso, "initial");
+  for (const c of notify)
+    notifyContactAllChannels(store, alert, c, nowIso, "initial");
   alert.escalation.stageLog.push({
     stage: "t0_notify_primary",
     at: nowIso,
@@ -170,17 +202,60 @@ export function startEscalation(store: DemoStore, alert: Alert, nowMs: number): 
 }
 
 /** Important 级警报创建时即时通知（Email + Push，无 SMS、无升级链）— PRD §3.1 */
-function sendImportantInitialNotifications(store: DemoStore, alert: Alert, nowIso: string): void {
-  if (alert.level !== "important" || alert.status !== "open") return;
-  if (alert.notifications.length > 0) return; // 只发一次
+function sendImportantInitialNotifications(
+  store: DemoStore,
+  alert: Alert,
+  nowIso: string,
+): void {
+  if (
+    (alert.level !== "important" && alert.level !== "watch") ||
+    alert.status !== "open"
+  )
+    return;
   // Fall candidates wait for the recovery window before notification.
-  if (alert.eventType === "possible_fall" && store.events.some((e) => e.id === alert.eventId && e.fallPhase === "candidate")) return;
-  const sorted = [...store.contacts].sort((a, b) => a.escalationOrder - b.escalationOrder);
-  const primary = sorted[0];
-  if (!primary) return;
-  for (const ch of primary.channels) {
-    if (ch === "sms") continue; // Important 默认不发短信
-    sendNotification(store, alert, primary, ch, nowIso, "initial");
+  if (
+    alert.eventType === "possible_fall" &&
+    store.events.some(
+      (e) =>
+        e.id === alert.eventId &&
+        e.fallPhase === "candidate" &&
+        !!e.recoveryWindowEndsAt,
+    )
+  )
+    return;
+  const sorted = [...store.contacts].sort(
+    (a, b) => a.escalationOrder - b.escalationOrder,
+  );
+  for (const contact of sorted) {
+    if (
+      alert.level === "watch"
+        ? contact.subscriptions?.low !== true
+        : contact.subscriptions?.moderate === false
+    )
+      continue;
+    if (contact.quietHours) {
+      const clock = new Intl.DateTimeFormat("en-GB", {
+        timeZone: contact.timeZone,
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date(nowIso));
+      const { start, end } = contact.quietHours;
+      if (
+        start < end
+          ? clock >= start && clock < end
+          : clock >= start || clock < end
+      )
+        continue;
+    }
+    if (
+      alert.notifications.some(
+        (n) => n.contactId === contact.id && n.channel === "email",
+      )
+    )
+      continue;
+    if (contact.channels.includes("email"))
+      sendNotification(store, alert, contact, "email", nowIso, "initial");
   }
 }
 
@@ -188,25 +263,36 @@ function sendImportantInitialNotifications(store: DemoStore, alert: Alert, nowIs
 export function advance(store: DemoStore, nowMs: number): string[] {
   const transitions: string[] = [];
   const nowIso = new Date(nowMs).toISOString();
+  if (store.archived || store.subject.monitoringPaused) return transitions;
 
   // ── 0. Important 即时通知（无升级链）──
   for (const alert of store.alerts) {
-    if (alert.level === "important" && alert.status === "open" && alert.notifications.length === 0) {
+    if (
+      (alert.level === "important" || alert.level === "watch") &&
+      alert.status === "open"
+    ) {
+      const count = alert.notifications.length;
       sendImportantInitialNotifications(store, alert, nowIso);
-      transitions.push(`alert ${alert.id}: important initial notifications sent`);
+      if (alert.notifications.length !== count)
+        transitions.push(`alert ${alert.id}: moderate notifications queued`);
     }
   }
 
   // ── 1. 跌倒恢复观察窗到期 — PRD §5.2 ──
   for (const event of store.events) {
-    if (event.fallPhase !== "candidate" || !event.recoveryWindowEndsAt) continue;
+    if (event.fallPhase !== "candidate" || !event.recoveryWindowEndsAt)
+      continue;
     if (Date.parse(event.recoveryWindowEndsAt) > nowMs) continue;
 
     // Demo 固定"无恢复活动"（真实实现会检查窗内是否出现站起/走动信号）
     event.fallPhase = "unrecovered";
-    transitions.push(`event ${event.id}: recovery window ended, no recovery → unrecovered`);
+    transitions.push(
+      `event ${event.id}: recovery window ended, no recovery → unrecovered`,
+    );
 
-    const alert = store.alerts.find((a) => a.eventId === event.id && a.status === "open");
+    const alert = store.alerts.find(
+      (a) => a.eventId === event.id && a.status === "open",
+    );
     if (!alert) continue;
 
     const out = decideLevel(
@@ -222,17 +308,24 @@ export function advance(store: DemoStore, nowMs: number): string[] {
         deviceOfflineSuppressed: false,
       },
       {
-        probabilities: store.decisionProbabilities?.[event.id] ?? demoFallProbabilities(),
+        probabilities:
+          store.decisionProbabilities?.[event.id] ?? demoFallProbabilities(),
         structuredFacts: store.structuredFacts[event.id],
         monitoringPaused: store.subject.monitoringPaused,
         watchEmailEnabled: store.subscription.watchEmailEnabled,
-      }
+      },
     );
 
     if (out.level !== alert.level) {
       alert.level = out.level;
-      alert.levelHistory.push({ level: out.level, at: nowIso, trigger: "recovery_window_no_activity" });
-      transitions.push(`alert ${alert.id}: recovery window decision ${out.level}`);
+      alert.levelHistory.push({
+        level: out.level,
+        at: nowIso,
+        trigger: "recovery_window_no_activity",
+      });
+      transitions.push(
+        `alert ${alert.id}: recovery window decision ${out.level}`,
+      );
     }
     if (out.level === "critical") {
       startEscalation(store, alert, nowMs);
@@ -247,12 +340,17 @@ export function advance(store: DemoStore, nowMs: number): string[] {
     if (!esc.nextStageAt || !esc.currentStage) continue;
     if (Date.parse(esc.nextStageAt) > nowMs) continue;
 
-    const sorted = [...store.contacts].sort((a, b) => a.escalationOrder - b.escalationOrder);
+    const sorted = [...store.contacts].sort(
+      (a, b) => a.escalationOrder - b.escalationOrder,
+    );
 
     if (esc.unacknowledged) {
       // T+30 后重复提醒全员 — PRD §6.3
-      for (const c of sorted) notifyContactAllChannels(store, alert, c, nowIso, "reminder");
-      esc.nextStageAt = new Date(nowMs + repeatReminderMs(DEMO_TIME_SCALE)).toISOString();
+      for (const c of sorted)
+        notifyContactAllChannels(store, alert, c, nowIso, "reminder");
+      esc.nextStageAt = new Date(
+        nowMs + repeatReminderMs(DEMO_TIME_SCALE),
+      ).toISOString();
       esc.stageLog.push({
         stage: "t30_unacknowledged",
         at: nowIso,
@@ -267,8 +365,10 @@ export function advance(store: DemoStore, nowMs: number): string[] {
     if (!next) continue;
 
     const { notify, remind } = contactsForStage(next, sorted);
-    for (const c of notify) notifyContactAllChannels(store, alert, c, nowIso, "escalation");
-    for (const c of remind) notifyContactAllChannels(store, alert, c, nowIso, "reminder");
+    for (const c of notify)
+      notifyContactAllChannels(store, alert, c, nowIso, "escalation");
+    for (const c of remind)
+      notifyContactAllChannels(store, alert, c, nowIso, "reminder");
 
     esc.currentStage = next;
     esc.stageLog.push({
@@ -289,11 +389,15 @@ export function advance(store: DemoStore, nowMs: number): string[] {
     if (next === "t30_unacknowledged") {
       esc.unacknowledged = true;
       esc.repeatReminderEveryMin = 15;
-      esc.nextStageAt = new Date(nowMs + repeatReminderMs(DEMO_TIME_SCALE)).toISOString();
+      esc.nextStageAt = new Date(
+        nowMs + repeatReminderMs(DEMO_TIME_SCALE),
+      ).toISOString();
     } else {
       const after = nextEscalationStage(next);
       esc.nextStageAt = after
-        ? new Date(stageAtMs(Date.parse(alert.createdAt), after, DEMO_TIME_SCALE)).toISOString()
+        ? new Date(
+            stageAtMs(Date.parse(alert.createdAt), after, DEMO_TIME_SCALE),
+          ).toISOString()
         : null;
     }
   }
@@ -304,7 +408,10 @@ export function advance(store: DemoStore, nowMs: number): string[] {
     if (alert.level !== "watch" && alert.level !== "important") continue; // Critical 不自动过期
     // 处于升级链中的（如跌倒 capped Important）不过期
     if (alert.eventType === "possible_fall") continue;
-    const expireMin = alert.level === "watch" ? AUTO_EXPIRE_WATCH_MIN : AUTO_EXPIRE_IMPORTANT_MIN;
+    const expireMin =
+      alert.level === "watch"
+        ? AUTO_EXPIRE_WATCH_MIN
+        : AUTO_EXPIRE_IMPORTANT_MIN;
     if (Date.parse(alert.createdAt) + expireMin * 60 * 1000 <= nowMs) {
       alert.status = "auto_expired";
       alert.autoExpiredAt = nowIso;

@@ -21,10 +21,23 @@ export function EmailPreviewModal({
   const [actionUrl, setActionUrl] = useState<string | null>(null);
   const [previewBody, setPreviewBody] = useState<string | null>(null);
   useEffect(() => {
-    if (!notification?.secureLinkAvailable) { setActionUrl(null); setPreviewBody(null); return; }
-    fetch(`/api/demo/notifications/${encodeURIComponent(notification.id)}?personId=${encodeURIComponent(selectedPersonId)}`)
-      .then((r) => r.ok ? r.json() : null).then((body) => { setActionUrl(body?.actionUrl ?? null); setPreviewBody(body?.body ?? null); })
-      .catch(() => { setActionUrl(null); setPreviewBody(null); });
+    if (!notification?.secureLinkAvailable) {
+      setActionUrl(null);
+      setPreviewBody(null);
+      return;
+    }
+    fetch(
+      `/api/demo/notifications/${encodeURIComponent(notification.id)}?personId=${encodeURIComponent(selectedPersonId)}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        setActionUrl(body?.actionUrl ?? null);
+        setPreviewBody(body?.body ?? null);
+      })
+      .catch(() => {
+        setActionUrl(null);
+        setPreviewBody(null);
+      });
   }, [notification?.id, notification?.secureLinkAvailable, selectedPersonId]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -52,8 +65,12 @@ export function EmailPreviewModal({
                 LP
               </div>
               <div>
-                <div className="text-sm font-semibold text-ink">LivePrevent Alerts</div>
-                <div className="text-[11px] text-ink-mute">alerts@liveprevent.demo</div>
+                <div className="text-sm font-semibold text-ink">
+                  LivePrevent Alerts
+                </div>
+                <div className="text-[11px] text-ink-mute">
+                  alerts@liveprevent.demo
+                </div>
               </div>
             </div>
             <button
@@ -77,10 +94,12 @@ export function EmailPreviewModal({
               </span>
             ) : (
               <span className="rounded bg-important px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                Important
+                Moderate
               </span>
             )}
-            <h3 className="text-sm font-semibold text-ink">{notification.subject}</h3>
+            <h3 className="text-sm font-semibold text-ink">
+              {notification.subject}
+            </h3>
           </div>
         </div>
 
@@ -96,7 +115,9 @@ export function EmailPreviewModal({
                 href={actionUrl}
                 className={cn(
                   "inline-block rounded-lg px-4 py-2 text-sm font-semibold text-white",
-                  isCritical ? "bg-critical hover:bg-critical/90" : "bg-brand-600 hover:bg-brand-700"
+                  isCritical
+                    ? "bg-critical hover:bg-critical/90"
+                    : "bg-brand-600 hover:bg-brand-700",
                 )}
               >
                 Review &amp; acknowledge
@@ -109,8 +130,11 @@ export function EmailPreviewModal({
         </div>
 
         <div className="border-t border-surface-line bg-surface-soft px-5 py-2.5 text-[11px] text-ink-mute">
-          Sent {new Date(notification.sentAt).toLocaleString("en-GB")} · This is a simulated
-          notification for the demo.
+          {new Date(notification.sentAt).toLocaleString("en-GB")} ·{" "}
+          {notification.simulated
+            ? "Simulated preview · no external delivery"
+            : `${notification.deliveryStatus === "sent" ? "Sent · accepted by provider" : notification.deliveryStatus} · real email`}
+          {notification.error && ` · ${notification.error}`}
         </div>
       </div>
     </div>

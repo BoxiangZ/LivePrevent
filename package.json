@@ -3,13 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "NODE_OPTIONS=--experimental-sqlite next dev",
+    "build": "NODE_OPTIONS=--experimental-sqlite next build",
+    "start": "NODE_OPTIONS=--experimental-sqlite next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test:api": "node tests/v3-api.mjs",
-    "test:model": "node tests/v3-model.cjs"
+    "test:api": "node --experimental-sqlite tests/v3-api.mjs",
+    "test:model": "node --experimental-sqlite tests/v3-model.cjs",
+    "test:monitoring": "node --experimental-sqlite tests/monitoring.cjs",
+    "test:monitoring-api": "node --experimental-sqlite tests/monitoring-api.mjs"
   },
   "dependencies": {
     "next": "^15.1.0",

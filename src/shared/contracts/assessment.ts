@@ -223,6 +223,10 @@ export const peopleSchema = z.array(
     alias: z.string(),
     overallLevel: z.string(),
     openAlertCount: z.number(),
+    age: z.number().nullable().optional(),
+    timeZone: z.string().optional(),
+    displayStatus: displayStatus.optional(),
+    lastDataReceivedAt: iso.nullable().optional(),
   }),
 );
 export const overviewSchema = z.object({
@@ -252,6 +256,14 @@ export const overviewSchema = z.object({
     ),
   }),
   sourceLabel: z.string(),
+  monitoring: z
+    .object({
+      lastDataReceivedAt: iso.nullable(),
+      simulatorEnabled: z.boolean(),
+      dataLoss: z.boolean(),
+      emailEnabled: z.boolean(),
+    })
+    .optional(),
   learningProgress: z
     .object({ currentDay: z.number(), totalDays: z.number() })
     .nullable(),

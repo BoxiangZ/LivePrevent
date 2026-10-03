@@ -3,7 +3,12 @@
  * Dashboard 与通知全产品通用四级，不做第二套口径。
  */
 
-export const RISK_LEVELS = ["stable", "watch", "important", "critical"] as const;
+export const RISK_LEVELS = [
+  "stable",
+  "watch",
+  "important",
+  "critical",
+] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
 /** 等级元数据：颜色、语义、通知策略速查（完整策略见 PRD §3.1） */
@@ -27,14 +32,14 @@ export const RISK_LEVEL_META: Record<
     escalates: false,
   },
   watch: {
-    label: "Watch",
+    label: "Low risk",
     color: "watch",
     emoji: "🟡",
     jevPriority: "notice",
     escalates: false,
   },
   important: {
-    label: "Important",
+    label: "Moderate risk",
     color: "important",
     emoji: "🟠",
     jevPriority: "important",

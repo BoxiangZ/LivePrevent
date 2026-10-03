@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Demo 状态 Provider — 500ms 轮询 GET /api/demo/state。
+ * Demo 状态 Provider — 5 秒轮询受 schema 校验的 v3 snapshot。
  * 服务端引擎为懒求值，轮询频率不影响正确性；
  * 倒计时以快照 nowMs 为基准，避免时钟偏差。
  */
@@ -14,7 +14,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { api } from "@/client/api";
+import { api, ApiClientError } from "@/client/api";
 import { snapshotSchema } from "@/shared/contracts/snapshot";
 import { peopleSchema } from "@/shared/contracts/assessment";
 import { usePathname, useRouter } from "next/navigation";
@@ -56,9 +56,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [people, setPeople] = useState<DemoStateSnapshot["people"]>([]);
-  const personRef = useRef("sub_margaret");
+  const personRef = useRef("");
   const [busy, setBusy] = useState(false);
-  const [selectedPersonId, setSelectedPersonId] = useState("sub_margaret");
+  const [selectedPersonId, setSelectedPersonId] = useState("");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // 服务端与客户端的时钟差（snapshot.nowMs - 本地收到时刻）
@@ -66,6 +66,16 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
+      if (!selectedPersonId) {
+        const list = await api("people", peopleSchema);
+        setPeople(list);
+        if (!list.length) router.replace("/people");
+        if (list[0] && !personRef.current) {
+          personRef.current = list[0].id;
+          setSelectedPersonId(list[0].id);
+        }
+        return;
+      }
       const res = await fetch(
         `/api/v3/people/${encodeURIComponent(selectedPersonId)}/snapshot`,
         { cache: "no-store" },
@@ -74,13 +84,15 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         router.replace("/login");
         return;
       }
-      if (
-        [403, 404].includes(res.status) &&
-        selectedPersonId !== "sub_margaret"
-      ) {
-        personRef.current = "sub_margaret";
+      if ([403, 404].includes(res.status)) {
+        const list = await api("people", peopleSchema);
+        setPeople(list);
+        setSnapshot(null);
+        const next = list[0]?.id ?? "";
+        personRef.current = next;
+        setSelectedPersonId(next);
         window.localStorage.removeItem("lp_selected_person");
-        setSelectedPersonId("sub_margaret");
+        if (!next) router.replace("/people");
         return;
       }
       if (!res.ok)
@@ -91,7 +103,11 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       skewRef.current = data.nowMs - Date.now();
       setSnapshot(data);
       setError(null);
-    } catch {
+    } catch (e) {
+      if (e instanceof ApiClientError && e.status === 401) {
+        router.replace("/login");
+        return;
+      }
       if (personRef.current === selectedPersonId)
         setError(
           "Unable to verify current status. Check the connection and try again.",
@@ -256,10 +272,10 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
         fetch("/api/kimi/summary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ eventId }),
+          body: JSON.stringify({ eventId, personId: selectedPersonId }),
         }),
       ),
-    [withBusy],
+    [withBusy, selectedPersonId],
   );
 
   return (

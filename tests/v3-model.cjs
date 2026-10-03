@@ -30,6 +30,8 @@ process.env.LIVEPREVENT_DATA_DIR = fs.mkdtempSync(
 );
 process.env.KIMI_API_KEY = "test-only";
 process.env.KIMI_BASE_URL = "https://provider.test/v1";
+process.env.KIMI_MODEL = "kimi-k3";
+process.env.KIMI_VISION_MODEL = "kimi-k3";
 process.env.DEMO_KIMI_OFFLINE = "0";
 const media = require("../src/server/v3/media.ts");
 const assessments = require("../src/server/v3/assessments.ts");
@@ -42,6 +44,11 @@ let invalidTimestamp = false,
 global.fetch = async (url, options) => {
   assert.equal(url, "https://provider.test/v1/chat/completions");
   const body = JSON.parse(options.body);
+  assert.equal(body.model, "kimi-k3");
+  assert.equal(body.reasoning_effort, "low");
+  assert.equal(body.max_completion_tokens, 4096);
+  assert.equal(body.thinking, undefined, "K3 cannot disable thinking");
+  assert.equal(body.max_tokens, undefined, "K3 uses max_completion_tokens");
   const content = body.messages[1].content;
   let result;
   if (Array.isArray(content)) {
@@ -63,7 +70,9 @@ global.fetch = async (url, options) => {
     };
   } else if (body.messages[0].content.includes("home care report reader")) {
     noteCalls++;
-    result = { summary: "The user reports sample context that needs confirmation." };
+    result = {
+      summary: "The user reports sample context that needs confirmation.",
+    };
   } else {
     textCalls++;
     const facts = JSON.parse(content);
@@ -147,8 +156,13 @@ function fixture(seconds) {
   assert.equal(done.finding.level, "important");
   assert.equal(done.finding.video.evidence[0].atSeconds, 1);
   assert(done.finding.limitations.includes("Sample clip only"));
-  assert(done.finding.findings.some((f) =>
-    f.summary === "The user reports sample context that needs confirmation."));
+  assert(
+    done.finding.findings.some(
+      (f) =>
+        f.summary ===
+        "The user reports sample context that needs confirmation.",
+    ),
+  );
   invalidTimestamp = true;
   const b = assessments.createAssessment(
     { ...input, idempotencyKey: "model-test-invalid" },
@@ -191,12 +205,27 @@ function fixture(seconds) {
       summary: "Possible fall posture.",
       uncertain: false,
       limitations: [],
-      evidence: [{ atSeconds: 1, description: "Near the floor", kind: "fall_posture", confidence: "high" }],
+      evidence: [
+        {
+          atSeconds: 1,
+          description: "Near the floor",
+          kind: "fall_posture",
+          confidence: "high",
+        },
+      ],
     },
   );
   assert.equal(unaligned.level, null);
-  assert(unaligned.limitations.some((item) => item.includes("recording time was not confirmed")));
-  const impactInput = { ...input, scenario: undefined, primaryConcern: "general_check" };
+  assert(
+    unaligned.limitations.some((item) =>
+      item.includes("recording time was not confirmed"),
+    ),
+  );
+  const impactInput = {
+    ...input,
+    scenario: undefined,
+    primaryConcern: "general_check",
+  };
   const impact = assessments.evaluate(
     impactInput,
     [{ kind: "impact", value: true, at: now, source: "sample_manual" }],
@@ -206,32 +235,54 @@ function fixture(seconds) {
   assert.equal(impact.findings[0].category, "possible_fall");
   assert.equal(impact.findings[0].alertRecommended, true);
   assert.deepEqual(
-    assessments.evaluate({ ...impactInput, primaryConcern: "activity_drop" },
-      [{ kind: "impact", value: true, at: now, source: "sample_manual" }], null).findings,
+    assessments.evaluate(
+      { ...impactInput, primaryConcern: "activity_drop" },
+      [{ kind: "impact", value: true, at: now, source: "sample_manual" }],
+      null,
+    ).findings,
     impact.findings,
   );
   const movement = {
     summary: "Person stands and sits.",
     uncertain: false,
     limitations: [],
-    evidence: [{
-      atSeconds: 1, description: "Person stands up", kind: "movement", confidence: "high",
-    }],
+    evidence: [
+      {
+        atSeconds: 1,
+        description: "Person stands up",
+        kind: "movement",
+        confidence: "high",
+      },
+    ],
   };
-  const inactive = assessments.evaluate(impactInput, [
-    { kind: "inactivity_minutes", value: 10, at: now, source: "sample_manual" },
-    { kind: "worn", value: true, at: now, source: "sample_manual" },
-    { kind: "sleeping", value: false, at: now, source: "sample_manual" },
-    { kind: "device_online", value: true, at: now, source: "sample_manual" },
-  ], movement);
+  const inactive = assessments.evaluate(
+    impactInput,
+    [
+      {
+        kind: "inactivity_minutes",
+        value: 10,
+        at: now,
+        source: "sample_manual",
+      },
+      { kind: "worn", value: true, at: now, source: "sample_manual" },
+      { kind: "sleeping", value: false, at: now, source: "sample_manual" },
+      { kind: "device_online", value: true, at: now, source: "sample_manual" },
+    ],
+    movement,
+  );
   assert.equal(inactive.displayStatus, "unknown");
   assert.equal(inactive.findings[0].ruleId, "inactivity_video_conflict");
   assert.equal(inactive.findings[0].alertRecommended, false);
-  const multi = assessments.evaluate(impactInput, [
-    { kind: "heart_rate", value: 120, at: now, source: "sample_sensor" },
-    { kind: "worn", value: true, at: now, source: "sample_sensor" },
-    { kind: "device_online", value: false, at: now, source: "sample_sensor" },
-  ], null, { heartRate: 75, steps: null });
+  const multi = assessments.evaluate(
+    impactInput,
+    [
+      { kind: "heart_rate", value: 120, at: now, source: "sample_sensor" },
+      { kind: "worn", value: true, at: now, source: "sample_sensor" },
+      { kind: "device_online", value: false, at: now, source: "sample_sensor" },
+    ],
+    null,
+    { heartRate: 75, steps: null },
+  );
   assert.equal(multi.findings.length, 2);
   assert.equal(multi.level, "important");
   assert(multi.findings.some((f) => f.category === "device_data_gap"));

@@ -2,6 +2,8 @@
 import { useEffect, useState } from "react";
 import { api } from "@/client/api";
 import { settingsSchema, type Settings } from "@/shared/contracts/settings";
+import { emptyProfile } from "@/shared/contracts/monitoring";
+import { HealthProfileEditor } from "@/client/components/HealthProfileEditor";
 import { useDemo } from "@/client/provider/DemoProvider";
 const labels = {
   possible_fall: "Possible fall · always enabled",
@@ -10,8 +12,8 @@ const labels = {
   activity_drop: "Activity changes",
   device_data_gap: "Device data gaps",
   sleep_change: "Sleep changes",
-  watchEmailEnabled: "Email for Watch alerts",
-  importantEscalationEnabled: "Escalate Important alerts",
+  watchEmailEnabled: "Email for Low risk alerts",
+  importantEscalationEnabled: "Escalate Moderate alerts",
 };
 export default function SettingsPage() {
   const { selectedPersonId } = useDemo();
@@ -188,6 +190,60 @@ function Editor({ personId }: { personId: string }) {
           guardian.
         </p>
       </section>
+      <HealthProfileEditor
+        value={form.profile ?? emptyProfile()}
+        onChange={(profile) => change((f) => ({ ...f, profile }))}
+      />
+      <section className="panel">
+        <h2 className="text-lg font-semibold">Monitoring & email delivery</h2>
+        <p className="mt-2 text-sm text-ink-mute">
+          Heartbeat runs every 45 seconds. After 15 minutes without data, the
+          status becomes Unable to verify. Health measurements are not created
+          by heartbeat.
+        </p>
+        {form.monitoring && (
+          <div className="mt-4 space-y-3">
+            <label className="flex gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.monitoring.simulatorEnabled}
+                onChange={(e) =>
+                  change((f) => ({
+                    ...f,
+                    monitoring: {
+                      ...f.monitoring!,
+                      simulatorEnabled: e.target.checked,
+                    },
+                  }))
+                }
+              />
+              Enable simulated monitoring heartbeat
+            </label>
+            <label className="flex gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.monitoring.emailEnabled}
+                onChange={(e) =>
+                  change((f) => ({
+                    ...f,
+                    monitoring: {
+                      ...f.monitoring!,
+                      emailEnabled: e.target.checked,
+                    },
+                  }))
+                }
+              />
+              Send real email alerts to subscribed care contacts
+            </label>
+            <p className="text-xs text-ink-mute">
+              Enabling real email requires a primary email address and server
+              provider configuration. Critical always emails the primary
+              contact. Moderate follows each contact's preference and quiet
+              hours. SMS, push and phone remain simulated previews.
+            </p>
+          </div>
+        )}
+      </section>
       <section className="panel">
         <h2 className="text-lg font-semibold">Devices & coverage</h2>
         <div className="mt-4 space-y-4">
@@ -241,8 +297,9 @@ function Editor({ personId }: { personId: string }) {
       <section className="panel">
         <h2 className="text-lg font-semibold">Care contacts & notifications</h2>
         <p className="mt-2 text-sm text-ink-mute">
-          Contacts are listed in escalation order. Notifications in this
-          workspace are previews, not external deliveries.
+          Contacts are listed in escalation order. The first contact is primary.
+          Email can be delivered through the configured provider; other channels
+          are previews.
         </p>
         {form.contacts.map((c, i) => (
           <div
@@ -272,15 +329,22 @@ function Editor({ personId }: { personId: string }) {
                 onClick={() =>
                   change((f) => {
                     const contacts = [...f.contacts];
-                    [contacts[i - 1], contacts[i]] = [
-                      contacts[i],
-                      contacts[i - 1],
+                    const [primary] = contacts.splice(i, 1);
+                    primary.channels = [
+                      ...new Set<
+                        Settings["contacts"][number]["channels"][number]
+                      >(["email", ...primary.channels]),
                     ];
+                    primary.subscriptions = {
+                      ...primary.subscriptions,
+                      critical: true,
+                    };
+                    contacts.unshift(primary);
                     return { ...f, contacts };
                   })
                 }
               >
-                Move up
+                Set as primary
               </button>
               <button
                 className="btn-secondary"
@@ -300,12 +364,90 @@ function Editor({ personId }: { personId: string }) {
                 Remove
               </button>
             </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(["email", "phone", "relationship"] as const).map((key) => (
+                <label className="text-sm capitalize" key={key}>
+                  {key}
+                  <input
+                    type={key === "email" ? "email" : "text"}
+                    className="field"
+                    value={c[key]}
+                    onChange={(e) =>
+                      change((f) => ({
+                        ...f,
+                        contacts: f.contacts.map((v) =>
+                          v.id === c.id ? { ...v, [key]: e.target.value } : v,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+              ))}
+              <label className="text-sm">
+                Role
+                <select
+                  className="field"
+                  value={c.role}
+                  onChange={(e) =>
+                    change((f) => ({
+                      ...f,
+                      contacts: f.contacts.map((v) =>
+                        v.id === c.id
+                          ? {
+                              ...v,
+                              role: e.target
+                                .value as Settings["contacts"][number]["role"],
+                            }
+                          : v,
+                      ),
+                    }))
+                  }
+                >
+                  {["family", "caregiver", "healthcare_provider"].map(
+                    (role) => (
+                      <option key={role}>{role}</option>
+                    ),
+                  )}
+                </select>
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-5">
+              {(["critical", "moderate", "low"] as const).map((level) => (
+                <label className="text-sm capitalize" key={level}>
+                  <input
+                    className="mr-2"
+                    type="checkbox"
+                    disabled={i === 0 && level === "critical"}
+                    checked={c.subscriptions[level]}
+                    onChange={(e) =>
+                      change((f) => ({
+                        ...f,
+                        contacts: f.contacts.map((v) =>
+                          v.id === c.id
+                            ? {
+                                ...v,
+                                subscriptions: {
+                                  ...v.subscriptions,
+                                  [level]: e.target.checked,
+                                },
+                              }
+                            : v,
+                        ),
+                      }))
+                    }
+                  />
+                  {level}
+                  {i === 0 && level === "critical" && " (required)"}
+                </label>
+              ))}
+            </div>
             <div className="flex gap-5">
               {(["email", "sms", "push"] as const).map((channel) => (
                 <label className="text-sm" key={channel}>
                   <input
                     className="mr-2"
                     type="checkbox"
+                    disabled={channel !== "email" || i === 0}
                     checked={c.channels.includes(channel)}
                     onChange={(e) =>
                       change((f) => ({
@@ -324,6 +466,7 @@ function Editor({ personId }: { personId: string }) {
                     }
                   />
                   {channel.toUpperCase()}
+                  {channel !== "email" && " (preview only)"}
                 </label>
               ))}
             </div>
@@ -415,6 +558,11 @@ function Editor({ personId }: { personId: string }) {
                   subjectId: personId,
                   userId: null,
                   name: "",
+                  email: "",
+                  phone: "",
+                  relationship: "",
+                  role: "family",
+                  subscriptions: { critical: true, moderate: true, low: false },
                   escalationOrder: f.contacts.length + 1,
                   timeZone: f.subject.timeZone,
                   channels: ["email"],

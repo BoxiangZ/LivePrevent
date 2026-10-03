@@ -13,6 +13,7 @@
 
 import type { KimiSummary, StructuredFacts } from "@/shared/types/jev";
 import { EVENT_TYPE_LABELS } from "@/shared/labels";
+import { kimiGenerationOptions } from "./options";
 
 const SYSTEM_PROMPT = `You are a family-facing assessment explainer for LivePrevent, a home-monitoring alert system.
 You will receive a JSON object of structured facts. If assessmentFindings are present, explain all material findings, including evidence conflicts and limitations, in plain English.
@@ -31,9 +32,13 @@ Hard rules:
   "relatedChanges": "1 sentence: relevant changes from the provided list",
   "suggestedNextStep": "1 sentence: generic non-medical action"
 }
+If healthContext is present, use the reported background, personal baselines, historical changes and previous outcomes to explain context. Reported conditions do not prove a diagnosis or explain away a new urgent change. Never change medication doses. A medication review with a professional may be suggested.
 Write for a worried family member. Be calm, plain, and factual.`;
 
-export function buildKimiPrompt(facts: StructuredFacts): { system: string; user: string } {
+export function buildKimiPrompt(facts: StructuredFacts): {
+  system: string;
+  user: string;
+} {
   return { system: SYSTEM_PROMPT, user: JSON.stringify(facts, null, 2) };
 }
 
@@ -41,8 +46,14 @@ export function buildKimiPrompt(facts: StructuredFacts): { system: string; user:
  * 数值校验：摘要中出现的每个数字都必须能在输入 facts 的 JSON 序列化中找到 — PRD §10.2
  */
 export function validateKimiOutput(
-  output: Pick<KimiSummary, "eventSummary" | "baselineComparison" | "relatedChanges" | "suggestedNextStep">,
-  facts: StructuredFacts
+  output: Pick<
+    KimiSummary,
+    | "eventSummary"
+    | "baselineComparison"
+    | "relatedChanges"
+    | "suggestedNextStep"
+  >,
+  facts: StructuredFacts,
 ): boolean {
   const factsJson = JSON.stringify(facts);
   const text = [
@@ -85,7 +96,7 @@ export function templateFallback(facts: StructuredFacts): KimiSummary {
       ? facts.deviations
           .map(
             (d) =>
-              `${d.metric} is ${Math.abs(Math.round(d.relativeChange * 100))}% ${d.direction === "down" ? "below" : "above"} her personal baseline`
+              `${d.metric} is ${Math.abs(Math.round(d.relativeChange * 100))}% ${d.direction === "down" ? "below" : "above"} her personal baseline`,
           )
           .join("; ")
       : "No significant deviation from her personal baseline was recorded.";
@@ -98,12 +109,15 @@ export function templateFallback(facts: StructuredFacts): KimiSummary {
     relatedChanges:
       facts.relatedChanges.length > 0
         ? facts.relatedChanges
-            .map((change) => /[㐀-鿿]/u.test(change)
-              ? "Additional user-provided context needs confirmation"
-              : change)
+            .map((change) =>
+              /[㐀-鿿]/u.test(change)
+                ? "Additional user-provided context needs confirmation"
+                : change,
+            )
             .join(". ") + "."
         : "No related changes were supplied.",
-    suggestedNextStep: "Consider checking in with her and reviewing device status on the dashboard.",
+    suggestedNextStep:
+      "Consider checking in with her and reviewing device status on the dashboard.",
     validationPassed: true,
     source: "template_fallback",
   };
@@ -114,7 +128,10 @@ interface KimiApiResponse {
 }
 
 /** 调用 Kimi（OpenAI 兼容 chat completions）。永不抛异常。 */
-export async function callKimi(eventId: string, facts: StructuredFacts): Promise<KimiSummary> {
+export async function callKimi(
+  eventId: string,
+  facts: StructuredFacts,
+): Promise<KimiSummary> {
   const fallback = templateFallback(facts);
   fallback.eventId = eventId;
 
@@ -139,6 +156,7 @@ export async function callKimi(eventId: string, facts: StructuredFacts): Promise
       },
       body: JSON.stringify({
         model,
+        ...kimiGenerationOptions(model),
         messages: [
           { role: "system", content: system },
           { role: "user", content: user },
@@ -173,14 +191,20 @@ export async function callKimi(eventId: string, facts: StructuredFacts): Promise
     };
 
     // 数值与输入不一致 → 丢弃，降级模板 — PRD §10.2
-    if (!validateKimiOutput(candidate, facts) || /[㐀-鿿]/u.test(JSON.stringify(candidate))) {
+    if (
+      !validateKimiOutput(candidate, facts) ||
+      /[㐀-鿿]/u.test(JSON.stringify(candidate))
+    ) {
       console.warn("[kimi] numeric validation failed → template fallback");
       return fallback;
     }
 
     return { ...candidate, eventId, validationPassed: true, source: "llm" };
   } catch (err) {
-    console.warn("[kimi] call failed → template fallback:", err instanceof Error ? err.message : err);
+    console.warn(
+      "[kimi] call failed → template fallback:",
+      err instanceof Error ? err.message : err,
+    );
     return fallback; // 超时 / 网络错误 / JSON 解析失败
   }
 }

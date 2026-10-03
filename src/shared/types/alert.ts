@@ -6,7 +6,12 @@ import type { AlertStatus, ResolveReason, RiskLevel } from "./risk";
 import type { EventType } from "./event";
 
 /** 通知渠道 — PRD §6.1 */
-export const NOTIFICATION_CHANNELS = ["email", "sms", "push", "voice_call"] as const;
+export const NOTIFICATION_CHANNELS = [
+  "email",
+  "sms",
+  "push",
+  "voice_call",
+] as const;
 export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
 
 /** 联系人 — PRD §6.2：至少 1 位主联系人，强烈建议 1 位同城/同时区联系人 */
@@ -15,6 +20,11 @@ export interface Contact {
   subjectId: string;
   userId: string | null; // 关联家属账户（外部联系人可为 null）
   name: string;
+  email?: string;
+  phone?: string;
+  relationship?: string;
+  role?: "family" | "caregiver" | "healthcare_provider";
+  subscriptions?: { critical: boolean; moderate: boolean; low: boolean };
   /** 升级顺序，1 = 主联系人，T+0 即通知 */
   escalationOrder: number;
   timeZone: string; // IANA
@@ -62,7 +72,15 @@ export interface NotificationRecord {
   channel: NotificationChannel;
   sentAt: string;
   /** 通道送达监控 — PRD §18 风险"Critical 通知未送达" */
-  deliveryStatus: "sent" | "delivered" | "failed";
+  deliveryStatus: "pending" | "sent" | "delivered" | "failed";
+  simulated?: boolean;
+  providerMessageId?: string;
+  error?: string;
+  attempts?: number;
+  nextAttemptAt?: string;
+  retryable?: boolean;
+  leaseUntil?: number;
+  recipientEmail?: string;
   /** Critical 深度链接的一次性限时 token — PRD §7.1 */
   oneTimeTokenId: string | null;
   oneTimeTokenExpiresAt: string | null;

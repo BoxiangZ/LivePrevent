@@ -5,15 +5,8 @@ import { z } from "zod";
 import { api } from "@/client/api";
 import { overviewSchema } from "@/shared/contracts/assessment";
 import { useDemo } from "@/client/provider/DemoProvider";
-import { TrendsGrid } from "@/client/components/TrendsGrid";
-const titles = {
-  stable: "Stable",
-  watch: "Keep an eye on this",
-  important: "A check-in is recommended",
-  critical: "May need help now",
-  unknown: "Unable to verify current condition",
-  paused: "Monitoring is paused",
-};
+import { MonitoringStatus } from "@/client/components/MonitoringStatus";
+import { HealthEvolution } from "@/client/components/HealthEvolution";
 export default function Overview() {
   const { selectedPersonId, snapshot, error: connectionError } = useDemo();
   const [data, setData] = useState<z.infer<typeof overviewSchema> | null>(null);
@@ -46,32 +39,34 @@ export default function Overview() {
       </div>
     );
   const unknown = Boolean(error || connectionError);
-  const status = unknown ? "unknown" : data.displayStatus;
+  const status =
+    unknown && data.displayStatus !== "critical"
+      ? "unknown"
+      : data.displayStatus;
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Overview</h1>
-        <Link className="btn-secondary" href="/assessments/new">
-          Add information
-        </Link>
+        <div className="flex gap-3">
+          <Link className="btn-secondary" href="/demo-studio">
+            Try monitoring scenarios
+          </Link>
+          <Link className="btn-primary" href="/assessments/new">
+            Add information
+          </Link>
+        </div>
       </div>
-      <section
-        className={`panel border-l-4 ${status === "critical" ? "border-l-critical" : status === "stable" ? "border-l-stable" : "border-l-watch"}`}
-      >
-        <p className="eyebrow">Current status</p>
-        <h2 className="mt-3 text-3xl font-semibold">{titles[status]}</h2>
-        <p className="mt-3 text-ink-soft">
-          {unknown
-            ? "Connection interrupted. Refresh to verify the current condition."
-            : data.statusReason}
-        </p>
-        <p className="mt-4 text-xs text-ink-mute">
-          {data.sourceLabel} ·{" "}
-          {data.evaluatedAt
-            ? `Last reliable device information: ${new Date(data.evaluatedAt).toLocaleString()}`
-            : "No device information"}
-        </p>
-      </section>
+      {data.monitoring && (
+        <MonitoringStatus
+          status={status}
+          monitoring={data.monitoring}
+          reason={
+            unknown
+              ? "Connection interrupted. Refresh to verify the current condition."
+              : data.statusReason
+          }
+        />
+      )}
       <section className="panel">
         <h2 className="font-semibold">Data freshness</h2>
         <div className="mt-4 grid grid-cols-2 gap-4">
@@ -141,14 +136,7 @@ export default function Overview() {
           </p>
         )}
       </section>
-      <details className="panel">
-        <summary className="cursor-pointer font-semibold">
-          Health trends and personal baseline
-        </summary>
-        <div className="mt-6">
-          <TrendsGrid />
-        </div>
-      </details>
+      <HealthEvolution key={selectedPersonId} personId={selectedPersonId} />
     </div>
   );
 }

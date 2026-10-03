@@ -9,20 +9,29 @@ import { useState } from "react";
 import { useDemo } from "@/client/provider/DemoProvider";
 import { cn } from "@/client/cn";
 
-export function DemoControls() {
-  const [open, setOpen] = useState(false);
+export function DemoControls({ inline = false }: { inline?: boolean }) {
+  const [open, setOpen] = useState(inline);
   const { snapshot, injectFall, injectInactivity, resetDemo, busy } = useDemo();
 
   const fallActive = snapshot?.alerts.some(
-    (a) => a.eventType === "possible_fall" && (a.status === "open" || a.status === "acknowledged")
+    (a) =>
+      a.eventType === "possible_fall" &&
+      (a.status === "open" || a.status === "acknowledged"),
   );
   const inactivityActive = snapshot?.alerts.some(
     (a) =>
-      a.eventType === "prolonged_inactivity" && (a.status === "open" || a.status === "acknowledged")
+      a.eventType === "prolonged_inactivity" &&
+      (a.status === "open" || a.status === "acknowledged"),
   );
 
   return (
-    <div className="fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2">
+    <div
+      className={
+        inline
+          ? "mt-4 flex flex-col items-start gap-2"
+          : "fixed bottom-4 right-4 z-40 flex flex-col items-end gap-2"
+      }
+    >
       {open && (
         <div className="w-64 overflow-hidden rounded-xl border border-surface-line bg-white shadow-lift">
           <div className="border-b border-surface-line bg-surface-soft px-4 py-2">
@@ -48,7 +57,14 @@ export function DemoControls() {
               active={!!inactivityActive}
             />
             <DemoButton
-              onClick={() => { if (confirm("Reset sample events for this person? Contacts and settings are kept.")) void resetDemo().catch(() => undefined); }}
+              onClick={() => {
+                if (
+                  confirm(
+                    "Reset sample events for this person? Contacts and settings are kept.",
+                  )
+                )
+                  void resetDemo().catch(() => undefined);
+              }}
               disabled={busy}
               tone="neutral"
               label="Reset scenario"
@@ -67,7 +83,7 @@ export function DemoControls() {
           "flex h-10 items-center gap-2 rounded-full border px-3.5 text-xs font-semibold shadow-lift transition-colors",
           open
             ? "border-ink bg-ink text-white"
-            : "border-surface-line bg-white text-ink-soft hover:border-ink-mute"
+            : "border-surface-line bg-white text-ink-soft hover:border-ink-mute",
         )}
         aria-label={open ? "Close demo controls" : "Open demo controls"}
       >
@@ -97,7 +113,8 @@ function DemoButton({
 }) {
   const tones: Record<string, string> = {
     critical: "border-critical/40 bg-red-50 text-critical hover:bg-red-100",
-    important: "border-important/40 bg-orange-50 text-important hover:bg-orange-100",
+    important:
+      "border-important/40 bg-orange-50 text-important hover:bg-orange-100",
     neutral: "border-surface-line bg-white text-ink-soft hover:bg-surface-soft",
   };
   return (
@@ -106,12 +123,16 @@ function DemoButton({
       disabled={disabled}
       className={cn(
         "w-full rounded-lg border px-3 py-2 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40",
-        tones[tone]
+        tones[tone],
       )}
     >
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold">{label}</span>
-        {active && <span className="text-[10px] font-bold uppercase tracking-wide">active</span>}
+        {active && (
+          <span className="text-[10px] font-bold uppercase tracking-wide">
+            active
+          </span>
+        )}
       </div>
       <div className="mt-0.5 text-[11px] opacity-75">{hint}</div>
     </button>

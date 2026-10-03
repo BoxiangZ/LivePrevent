@@ -1,3 +1,9 @@
+import {
+  healthProfileSchema,
+  monitoringSchema,
+  careTaskSchema,
+  contactDetails,
+} from "./monitoring";
 import { z } from "zod";
 import { iso, id, risk, peopleSchema } from "./assessment";
 import type { DemoStateSnapshot } from "@/server/snapshot";
@@ -14,7 +20,10 @@ const notification = z.object({
   contactId: id,
   channel: z.enum(["email", "sms", "push", "voice_call"]),
   sentAt: iso,
-  deliveryStatus: z.enum(["sent", "delivered", "failed"]),
+  deliveryStatus: z.enum(["pending", "sent", "delivered", "failed"]),
+  simulated: z.boolean().optional(),
+  error: z.string().optional(),
+  providerMessageId: z.string().optional(),
   oneTimeTokenId: id.nullable(),
   oneTimeTokenExpiresAt: iso.nullable(),
 });
@@ -65,6 +74,17 @@ const alert = z.object({
 });
 export const snapshotSchema = z
   .object({
+    monitoring: monitoringSchema,
+    profile: healthProfileSchema,
+    careTasks: z.array(careTaskSchema),
+    displayStatus: z.enum([
+      "stable",
+      "watch",
+      "important",
+      "critical",
+      "unknown",
+      "paused",
+    ]),
     nowMs: z.number(),
     demoTimeScale: z.number(),
     people: peopleSchema,
@@ -187,6 +207,7 @@ export const snapshotSchema = z
         subjectId: id,
         userId: id.nullable(),
         name: z.string(),
+        ...contactDetails,
         escalationOrder: z.number(),
         timeZone: z.string(),
         channels: z.array(z.string()),
@@ -204,9 +225,11 @@ export const snapshotSchema = z
         sentAt: iso,
         subject: z.string().nullable(),
         body: z.string(),
+        error: z.string().nullable(),
+        providerMessageId: z.string().nullable(),
         secureLinkAvailable: z.boolean(),
-        deliveryStatus: z.enum(["sent", "delivered", "failed"]),
-        simulated: z.literal(true),
+        deliveryStatus: z.enum(["pending", "sent", "delivered", "failed"]),
+        simulated: z.boolean(),
       }),
     ),
     auditLog: z.array(
@@ -252,6 +275,7 @@ export const snapshotSchema = z
         .object({
           id,
           name: z.string(),
+          ...contactDetails,
           age: z.number(),
           level: risk,
           reason: z.string(),

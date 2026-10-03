@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { envelope } from "@/shared/contracts/assessment";
+export class ApiClientError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 export async function api<T extends z.ZodTypeAny>(
   path: string,
   schema: T,
@@ -12,6 +20,9 @@ export async function api<T extends z.ZodTypeAny>(
   });
   const body = await response.json();
   if (!response.ok)
-    throw new Error(body.message ?? "Request failed. Please try again.");
+    throw new ApiClientError(
+      response.status,
+      body.message ?? "Request failed. Please try again.",
+    );
   return envelope(schema).parse(body).data;
 }

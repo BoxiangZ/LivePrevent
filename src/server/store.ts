@@ -1,14 +1,31 @@
 /** Local, synthetic demo repository. Every monitored person has isolated state. */
 
+import { randomUUID } from "node:crypto";
+import {
+  emptyProfile,
+  type HealthProfile,
+  type Monitoring,
+  type CareTask,
+} from "@/shared/contracts/monitoring";
+import { monitoringStatus } from "@/server/monitoring";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import type { Subject } from "@/shared/types/subject";
 import type { Device, DataFreshness } from "@/shared/types/device";
-import type { Contact, Alert, NotificationRecord, AlertSubscriptionSettings } from "@/shared/types/alert";
+import type {
+  Contact,
+  Alert,
+  NotificationRecord,
+  AlertSubscriptionSettings,
+} from "@/shared/types/alert";
 import type { MonitoredEvent, TrendMetric } from "@/shared/types/event";
-import type { BaselineEntry, TrendPoint, BaselineDeviation } from "@/shared/types/baseline";
+import type {
+  BaselineEntry,
+  TrendPoint,
+  BaselineDeviation,
+} from "@/shared/types/baseline";
 import type { AuditLogEntry, AuditAction } from "@/shared/types/audit";
 import type { KimiSummary, StructuredFacts } from "@/shared/types/jev";
 import type { JevProbabilities } from "@/shared/types/jev";
@@ -30,6 +47,19 @@ import {
 } from "@/server/data/seed";
 
 export interface DemoStore {
+  profile: HealthProfile;
+  monitoring: Monitoring;
+  careTasks: CareTask[];
+  archived?: boolean;
+  historyMode: "sample" | "user";
+  evolutionSeries: Record<string, Array<{ date: string; value: number }>>;
+  evolutionSummary?: {
+    text: string;
+    source: "llm" | "rules";
+    generatedAt: string;
+    windowDays: number;
+  };
+  trendReviewedAt?: string;
   user: User;
   subject: Subject;
   devices: Device[];
@@ -43,7 +73,12 @@ export interface DemoStore {
   /** 渲染后的通知内容预览（模拟发送，UI 展示用；rawToken 仅 Demo 用于渲染可点击安全链接） */
   notificationBodies: Record<
     string,
-    { channel: string; subject: string | null; body: string; rawToken: string | null }
+    {
+      channel: string;
+      subject: string | null;
+      body: string;
+      rawToken: string | null;
+    }
   >;
   oneTimeTokens: OneTimeToken[];
   /** tokenHash → tokenId */
@@ -63,7 +98,10 @@ export interface DemoStore {
 
 export const DEFAULT_PERSON_ID = SUBJECT_ID;
 const SECOND_PERSON_ID = "sub_evelyn";
-const DB_PATH = join(process.env.LIVEPREVENT_DATA_DIR ?? join(process.cwd(), "mockdata"), "liveprevent.sqlite");
+const DB_PATH = join(
+  process.env.LIVEPREVENT_DATA_DIR ?? join(process.cwd(), "mockdata"),
+  "liveprevent.sqlite",
+);
 
 export interface DemoRun {
   id: string;
@@ -82,7 +120,10 @@ let database: DatabaseSync | null = null;
 
 function db(): DatabaseSync {
   if (database) return database;
-  mkdirSync(process.env.LIVEPREVENT_DATA_DIR ?? join(process.cwd(), "mockdata"), { recursive: true });
+  mkdirSync(
+    process.env.LIVEPREVENT_DATA_DIR ?? join(process.cwd(), "mockdata"),
+    { recursive: true },
+  );
   const connection = new DatabaseSync(DB_PATH);
   connection.exec(`
     CREATE TABLE IF NOT EXISTS people (id TEXT PRIMARY KEY, state TEXT NOT NULL);
@@ -92,7 +133,13 @@ function db(): DatabaseSync {
     );
   `);
   database = connection;
-  if ((connection.prepare("SELECT COUNT(*) AS count FROM people").get() as { count: number }).count === 0) {
+  if (
+    (
+      connection.prepare("SELECT COUNT(*) AS count FROM people").get() as {
+        count: number;
+      }
+    ).count === 0
+  ) {
     const now = Date.now();
     saveStore(createSeededStore(now), connection);
     saveStore(createSecondStore(now), connection);
@@ -109,12 +156,27 @@ export function createSeededStore(nowMs: number): DemoStore {
   const nowIso = new Date(nowMs).toISOString();
   const history = seedPastEvents(nowMs);
   const trends = Object.fromEntries(
-    TREND_METRICS.map((m) => [m, buildTrendSeries(m, TREND_DAYS, new Date(nowMs))])
+    TREND_METRICS.map((m) => [
+      m,
+      buildTrendSeries(m, TREND_DAYS, new Date(nowMs)),
+    ]),
   ) as Record<TrendMetric, TrendPoint[]>;
 
-  const learningSince = new Date(nowMs - 40 * 24 * 60 * 60 * 1000).toISOString();
+  const learningSince = new Date(
+    nowMs - 40 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   return {
+    profile: emptyProfile(),
+    monitoring: {
+      lastDataReceivedAt: nowIso,
+      simulatorEnabled: true,
+      dataLoss: false,
+      emailEnabled: false,
+    },
+    careTasks: [],
+    historyMode: "sample",
+    evolutionSeries: {},
     user: seedUser(nowIso),
     subject: seedSubject(nowIso),
     devices: seedDevices(nowIso),
@@ -145,72 +207,140 @@ function createSecondStore(nowMs: number): DemoStore {
   store.subject.displayName = "Evelyn Lee";
   store.subject.age = 79;
   store.subject.consent = store.subject.consent
-    ? { ...store.subject.consent, id: "consent_evelyn", subjectId: SECOND_PERSON_ID }
+    ? {
+        ...store.subject.consent,
+        id: "consent_evelyn",
+        subjectId: SECOND_PERSON_ID,
+      }
     : null;
   store.user.rolesBySubject = { [SECOND_PERSON_ID]: "primary_family" };
   store.devices = store.devices.map((device) => ({
-    ...device, id: `${device.id}_evelyn`, subjectId: SECOND_PERSON_ID,
+    ...device,
+    id: `${device.id}_evelyn`,
+    subjectId: SECOND_PERSON_ID,
   }));
   store.contacts = store.contacts.map((contact) => ({
-    ...contact, id: `${contact.id}_evelyn`, subjectId: SECOND_PERSON_ID,
+    ...contact,
+    id: `${contact.id}_evelyn`,
+    subjectId: SECOND_PERSON_ID,
     name: contact.escalationOrder === 1 ? "Jamie Lee" : "Local neighbour",
   }));
   store.subscription.subjectId = SECOND_PERSON_ID;
   store.events = [];
   store.alerts = [];
-  store.auditLog = store.auditLog.map((entry) => ({ ...entry, subjectId: SECOND_PERSON_ID }));
+  store.auditLog = store.auditLog.map((entry) => ({
+    ...entry,
+    subjectId: SECOND_PERSON_ID,
+  }));
   store.baselines = store.baselines.map((baseline) => ({ ...baseline }));
   return store;
 }
 
-export function listPeople(): Array<{ id: string; label: string; alias: string; overallLevel: string; openAlertCount: number }> {
-  const rows = db().prepare("SELECT state FROM people ORDER BY id").all() as Array<{ state: string }>;
-  return rows.map(({ state }) => {
-    const store = JSON.parse(state) as DemoStore;
-    const open = store.alerts.filter((a) => a.status === "open" || a.status === "acknowledged");
-    const level = open.some((a) => a.level === "critical") ? "critical"
-      : open.some((a) => a.level === "important") ? "important"
-      : open.some((a) => a.level === "watch") ? "watch" : "stable";
-    return { id: store.subject.id, label: store.subject.displayName ?? store.subject.alias,
-      alias: store.subject.alias, overallLevel: level, openAlertCount: open.length };
-  });
+export function listPeople() {
+  const rows = db()
+    .prepare("SELECT state FROM people ORDER BY id")
+    .all() as Array<{ state: string }>;
+  return rows
+    .map(({ state }) => upgradeStore(JSON.parse(state) as DemoStore))
+    .filter((s) => !s.archived)
+    .map((store) => {
+      const open = store.alerts.filter(
+        (a) => a.status === "open" || a.status === "acknowledged",
+      );
+      const level = open.some((a) => a.level === "critical")
+        ? "critical"
+        : open.some((a) => a.level === "important")
+          ? "important"
+          : open.some((a) => a.level === "watch")
+            ? "watch"
+            : "stable";
+      return {
+        id: store.subject.id,
+        label: store.subject.displayName ?? store.subject.alias,
+        alias: store.subject.alias,
+        age: store.subject.age,
+        timeZone: store.subject.timeZone,
+        overallLevel: level,
+        displayStatus: monitoringStatus(store).status,
+        lastDataReceivedAt: store.monitoring.lastDataReceivedAt,
+        openAlertCount: open.length,
+      };
+    });
 }
 
 export function getStore(personId = DEFAULT_PERSON_ID): DemoStore | null {
-  const row = db().prepare("SELECT state FROM people WHERE id = ?").get(personId) as { state: string } | undefined;
+  const row = db()
+    .prepare("SELECT state FROM people WHERE id = ?")
+    .get(personId) as { state: string } | undefined;
   if (!row) return null;
-  const store = JSON.parse(row.state) as DemoStore;
+  const store = upgradeStore(JSON.parse(row.state) as DemoStore);
+  if (store.archived) return null;
   // Earlier synthetic seeds used a fixed name inside historical resolution notes.
   for (const alert of store.alerts) {
-    if (alert.resolveNote === "Called Margaret — she was resting after a poor night. Confirmed OK.")
-      alert.resolveNote = "Called the selected person — resting after a poor night. Confirmed OK.";
-    if (alert.resolveNote === "Margaret had been climbing stairs — heart rate recovered within minutes.")
-      alert.resolveNote = "The selected person had been climbing stairs — heart rate recovered within minutes.";
+    if (
+      alert.resolveNote ===
+      "Called Margaret — she was resting after a poor night. Confirmed OK."
+    )
+      alert.resolveNote =
+        "Called the selected person — resting after a poor night. Confirmed OK.";
+    if (
+      alert.resolveNote ===
+      "Margaret had been climbing stairs — heart rate recovered within minutes."
+    )
+      alert.resolveNote =
+        "The selected person had been climbing stairs — heart rate recovered within minutes.";
   }
   return store;
 }
 
 export function saveStore(store: DemoStore, connection = db()): void {
-  connection.prepare("INSERT INTO people (id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state")
+  connection
+    .prepare(
+      "INSERT INTO people (id, state) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state",
+    )
     .run(store.subject.id, JSON.stringify(store));
 }
 
 export function resetStore(personId = DEFAULT_PERSON_ID): DemoStore | null {
   const previous = getStore(personId);
   if (!previous) return null;
-  const store = personId === SECOND_PERSON_ID ? createSecondStore(Date.now()) : createSeededStore(Date.now());
+  const store =
+    previous.historyMode === "user"
+      ? createEmptyStore(previous.subject.displayName ?? previous.subject.alias)
+      : personId === SECOND_PERSON_ID
+        ? createSecondStore(Date.now())
+        : createSeededStore(Date.now());
+  store.profile = previous.profile;
+  store.careTasks = previous.careTasks;
+  store.historyMode = previous.historyMode;
+  store.evolutionSeries = previous.evolutionSeries;
+  store.monitoring = {
+    ...previous.monitoring,
+    dataLoss: false,
+    lastDataReceivedAt: new Date().toISOString(),
+  };
   store.subject = previous.subject;
   store.contacts = previous.contacts;
-  store.devices = previous.devices;
+  store.devices = previous.devices.map((d) => ({
+    ...d,
+    online: true,
+    offlineSince: null,
+    lastSyncAt: new Date().toISOString(),
+  }));
   store.subscription = previous.subscription;
   // Developer scenario reset must not break retained uploaded assessments.
-  const uploaded = previous.events.filter((event) => previous.structuredFacts[event.id]?.observations !== undefined);
+  const uploaded = previous.events.filter(
+    (event) => previous.structuredFacts[event.id]?.observations !== undefined,
+  );
   const uploadedIds = new Set(uploaded.map((event) => event.id));
   store.events.push(...uploaded);
-  store.alerts.push(...previous.alerts.filter((alert) => uploadedIds.has(alert.eventId)));
+  store.alerts.push(
+    ...previous.alerts.filter((alert) => uploadedIds.has(alert.eventId)),
+  );
   for (const event of uploaded) {
     store.structuredFacts[event.id] = previous.structuredFacts[event.id];
-    if (previous.kimiSummaries[event.id]) store.kimiSummaries[event.id] = previous.kimiSummaries[event.id];
+    if (previous.kimiSummaries[event.id])
+      store.kimiSummaries[event.id] = previous.kimiSummaries[event.id];
   }
   store.seq = Math.max(store.seq, previous.seq);
   store.auditLog = previous.auditLog;
@@ -235,20 +365,34 @@ export function findStoreByEventId(eventId: string): DemoStore | null {
   return null;
 }
 
-export function getRun(personId: string, idempotencyKey: string): DemoRun | null {
-  const row = db().prepare("SELECT payload FROM demo_runs WHERE person_id = ? AND idempotency_key = ?")
+export function getRun(
+  personId: string,
+  idempotencyKey: string,
+): DemoRun | null {
+  const row = db()
+    .prepare(
+      "SELECT payload FROM demo_runs WHERE person_id = ? AND idempotency_key = ?",
+    )
     .get(personId, idempotencyKey) as { payload: string } | undefined;
   return row ? (JSON.parse(row.payload) as DemoRun) : null;
 }
 
 export function saveRun(run: DemoRun): void {
-  db().prepare("INSERT INTO demo_runs (id, person_id, idempotency_key, payload) VALUES (?, ?, ?, ?)")
+  db()
+    .prepare(
+      "INSERT INTO demo_runs (id, person_id, idempotency_key, payload) VALUES (?, ?, ?, ?)",
+    )
     .run(run.id, run.personId, run.idempotencyKey, JSON.stringify(run));
 }
 
 export function listRuns(personId: string): DemoRun[] {
-  return (db().prepare("SELECT payload FROM demo_runs WHERE person_id = ? ORDER BY rowid DESC LIMIT 30")
-    .all(personId) as Array<{ payload: string }>).map((row) => JSON.parse(row.payload) as DemoRun);
+  return (
+    db()
+      .prepare(
+        "SELECT payload FROM demo_runs WHERE person_id = ? ORDER BY rowid DESC LIMIT 30",
+      )
+      .all(personId) as Array<{ payload: string }>
+  ).map((row) => JSON.parse(row.payload) as DemoRun);
 }
 
 /** 追加审计日志 — 所有警报操作、授权变更、数据访问均写入（PRD §8.5 / §6.4） */
@@ -263,7 +407,7 @@ export function appendAudit(
     targetContactId?: string | null;
     detail?: Record<string, string | number | boolean | null>;
     ip?: string | null;
-  }
+  },
 ): AuditLogEntry {
   const full: AuditLogEntry = {
     id: nextId(store, "aud"),
@@ -291,4 +435,78 @@ export function freshnessOf(store: DemoStore): DataFreshness[] {
     worn: d.worn,
     lastSyncAt: d.lastSyncAt,
   }));
+}
+
+/** Read old persisted workspaces without discarding user settings or assessments. */
+function upgradeStore(store: DemoStore): DemoStore {
+  store.profile ??= emptyProfile();
+  store.monitoring ??= {
+    lastDataReceivedAt:
+      store.devices
+        .map((d) => d.lastSyncAt)
+        .filter((t): t is string => !!t)
+        .sort()
+        .at(-1) ?? null,
+    simulatorEnabled: true,
+    dataLoss: false,
+    emailEnabled: false,
+  };
+  store.careTasks ??= [];
+  store.historyMode ??= "sample";
+  store.evolutionSeries ??= {};
+  for (const c of store.contacts) {
+    c.email ??= c.userId === store.user.id ? store.user.email : "";
+    c.phone ??= "";
+    c.relationship ??= "";
+    c.role ??= "family";
+    c.subscriptions ??= { critical: true, moderate: true, low: false };
+  }
+  return store;
+}
+export function createEmptyStore(name: string): DemoStore {
+  const store = createSeededStore(Date.now());
+  store.subject.id = `sub_${randomUUID()}`;
+  store.subject.alias = name;
+  store.subject.displayName = name;
+  store.subject.age = null;
+  store.subject.consent = null;
+  store.user.rolesBySubject = { [store.subject.id]: "primary_family" };
+  store.events = [];
+  store.alerts = [];
+  store.auditLog = [];
+  store.devices = [];
+  store.contacts = [];
+  store.historyMode = "user";
+  store.trends = { activity: [], sleep: [], mobility: [], resting_hr: [] };
+  store.baselines = seedBaselines(new Date().toISOString()).map((b) => ({
+    ...b,
+    learned: false,
+    median: null,
+    p25: null,
+    p75: null,
+  }));
+  store.subscription.subjectId = store.subject.id;
+  store.monitoring.lastDataReceivedAt = null;
+  return store;
+}
+/** Recoverable removal: the person's private records remain local but are inaccessible. */
+export function archivedStore(id: string): DemoStore | null {
+  const row = db().prepare("SELECT state FROM people WHERE id=?").get(id) as
+    { state: string } | undefined;
+  return row ? upgradeStore(JSON.parse(row.state)) : null;
+}
+export function setArchived(store: DemoStore, archived: boolean): void {
+  store.archived = archived;
+  if (archived) {
+    store.subject.monitoringPaused = true;
+    store.monitoring.lastDataReceivedAt = null;
+    for (const alert of store.alerts)
+      for (const n of alert.notifications)
+        if (n.deliveryStatus === "pending") {
+          n.deliveryStatus = "failed";
+          n.error = "Monitoring person removed; email cancelled.";
+          n.retryable = false;
+        }
+  }
+  saveStore(store);
 }

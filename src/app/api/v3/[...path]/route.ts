@@ -1,3 +1,22 @@
+import { calendarDay } from "@/shared/date";
+import {
+  createPersonSchema,
+  evolutionSchema,
+} from "@/shared/contracts/monitoring";
+import { createPerson } from "@/server/v3/people";
+import { archivedStore, setArchived, resetStore } from "@/server/store";
+import { heartbeat } from "@/server/monitoring";
+import {
+  evolution,
+  summarizeEvolution,
+  initializeSampleHistory,
+  metricDefinitions,
+  advanceLongitudinal,
+  learnReportedBaselines,
+} from "@/server/longitudinal";
+import { createRiskEvent } from "@/server/simulator";
+import { advance } from "@/server/engine";
+import { emailConfigured } from "@/server/notifications/email";
 import { POST as acknowledge } from "@/app/api/alerts/[id]/ack/route";
 import { POST as resolveAlert } from "@/app/api/alerts/[id]/resolve/route";
 import { NextResponse } from "next/server";
@@ -114,6 +133,38 @@ async function handle(
         personIds: user.personIds,
         workspaceMode: "sample",
       });
+    if (resource === "people" && !id && method === "POST") {
+      const created = createPerson(
+        createPersonSchema.parse(await req.json()),
+        user.userId,
+      );
+      return send({ personId: created.subject.id }, 201);
+    }
+    if (
+      resource === "people" &&
+      id &&
+      action === "restore" &&
+      method === "POST"
+    ) {
+      const removed = archivedStore(id);
+      if (!removed || removed.user.id !== user.userId || !removed.archived)
+        throw new ApiError(
+          404,
+          "person_not_found",
+          "Removed person not found.",
+        );
+      setArchived(removed, false);
+      appendAudit(removed, {
+        at: new Date().toISOString(),
+        actorUserId: user.userId,
+        actorRole: "primary_family",
+        action: "person_restored",
+      });
+      saveStore(removed);
+      return send({ restored: true, personId: id });
+    }
+    if (resource === "email-status" && method === "GET")
+      return send({ configured: emailConfigured(), provider: "resend" });
     if (resource === "people" && !id && method === "GET")
       return send(
         peopleSchema.parse(
@@ -201,6 +252,227 @@ async function handle(
       const store = getStore(id);
       if (!store)
         throw new ApiError(404, "person_not_found", "Person not found.");
+      if (method === "DELETE" && !action) {
+        for (const a of all<StoredAssessment>("assessment"))
+          if (
+            a.personId === id &&
+            ["created", "queued", "analyzing"].includes(a.status)
+          )
+            cancelAssessment(a.assessmentId);
+        appendAudit(store, {
+          at: new Date().toISOString(),
+          actorUserId: user.userId,
+          actorRole: "primary_family",
+          action: "person_removed",
+        });
+        setArchived(store, true);
+        return send({ removed: true, personId: id, recoverable: true });
+      }
+      if (action === "simulate" && method === "POST") {
+        const input = z
+          .object({
+            scenario: z.enum([
+              "low",
+              "moderate",
+              "critical",
+              "data_loss",
+              "recover",
+              "longitudinal",
+              "reset",
+            ]),
+          })
+          .strict()
+          .parse(await req.json());
+        if (input.scenario === "reset") {
+          resetStore(id);
+          return send({ reset: true });
+        }
+        if (input.scenario === "data_loss") {
+          store.monitoring.dataLoss = true;
+          store.monitoring.lastDataReceivedAt = new Date(
+            Date.now() - 17 * 60000,
+          ).toISOString();
+          for (const d of store.devices) {
+            d.online = false;
+            d.lastSyncAt = store.monitoring.lastDataReceivedAt;
+          }
+        } else if (input.scenario === "recover") {
+          store.monitoring.dataLoss = false;
+          store.monitoring.simulatorEnabled = true;
+          store.monitoring.lastDataReceivedAt = null;
+          for (const d of store.devices) d.online = true;
+          heartbeat(store);
+        } else if (input.scenario === "longitudinal") {
+          if (store.historyMode !== "sample")
+            throw new ApiError(
+              409,
+              "sample_history_required",
+              "Use a sample person to simulate a historical trend.",
+            );
+          for (const metric of ["activity", "mobility"] as const) {
+            const baseline = store.baselines.find(
+              (b) => b.metric === metric && b.learned,
+            )?.median;
+            if (baseline)
+              store.trends[metric] = store.trends[metric].map((p, i, arr) =>
+                arr.length - i <= 42 ? { ...p, value: baseline * 0.72 } : p,
+              );
+          }
+          store.trendReviewedAt = undefined;
+          advanceLongitudinal(store);
+        } else {
+          if (store.subject.monitoringPaused)
+            throw new ApiError(
+              409,
+              "monitoring_paused",
+              "Resume monitoring before simulating risk.",
+            );
+          if (!store.monitoring.dataLoss) {
+            store.monitoring.lastDataReceivedAt = null;
+            heartbeat(store);
+          }
+          const result = createRiskEvent(
+            store,
+            input.scenario === "low"
+              ? "watch"
+              : input.scenario === "moderate"
+                ? "important"
+                : "critical",
+            "simulator",
+          );
+          advance(store, Date.now());
+          saveStore(store);
+          return send(result, 201);
+        }
+        saveStore(store);
+        return send({ ok: true });
+      }
+      if (action === "evolution") {
+        const days = z.coerce
+          .number()
+          .refine(
+            (n) => [7, 30, 90, 180, 365].includes(n),
+            "Choose 7, 30, 90, 180 or 365 days",
+          )
+          .parse(url.searchParams.get("window") ?? 30);
+        if (method === "GET")
+          return send(evolutionSchema.parse(evolution(store, days)));
+        if (detail === "summary" && method === "POST") {
+          const summary = await summarizeEvolution(store, days);
+          const latest = getStore(id);
+          if (!latest)
+            throw new ApiError(404, "person_not_found", "Person was removed.");
+          latest.evolutionSummary = summary;
+          saveStore(latest);
+          return send(evolutionSchema.parse(evolution(latest, days)));
+        }
+        if (detail === "observations" && method === "POST") {
+          const rows = z
+            .array(
+              z
+                .object({
+                  key: z.string(),
+                  date: z
+                    .string()
+                    .regex(/^\d{4}-\d{2}-\d{2}$/)
+                    .refine((v) => {
+                      const d = new Date(v);
+                      return (
+                        Number.isFinite(d.getTime()) &&
+                        d.toISOString().slice(0, 10) === v &&
+                        v <= calendarDay(new Date(), store.subject.timeZone)
+                      );
+                    }, "Use a valid date in the past or today"),
+                  value: z.number().finite().nonnegative(),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(365)
+            .parse(await req.json());
+          for (const row of rows) {
+            if (
+              !metricDefinitions.some((m) => m.key === row.key) ||
+              row.key === "risk_events"
+            )
+              throw new ApiError(
+                422,
+                "invalid_metric",
+                "Choose a supported health measurement.",
+              );
+            const ceilings: Record<string, number> = {
+              activity: 100000,
+              sleep: 24,
+              resting_hr: 300,
+              mobility: 10,
+              gait: 100,
+              behaviour: 1000,
+              weight: 400,
+              bp_systolic: 300,
+              bp_diastolic: 200,
+            };
+            if (row.value > ceilings[row.key])
+              throw new ApiError(
+                422,
+                "invalid_value",
+                "Measurement is outside the supported range.",
+              );
+            if (
+              ["activity", "sleep", "resting_hr", "mobility"].includes(row.key)
+            ) {
+              const key = row.key as
+                "activity" | "sleep" | "resting_hr" | "mobility";
+              store.trends[key] = [
+                ...store.trends[key].filter((p) => p.date !== row.date),
+                { ...row, metric: key, synthetic: true },
+              ].sort((a, b) => a.date.localeCompare(b.date));
+            } else
+              store.evolutionSeries[row.key] = [
+                ...(store.evolutionSeries[row.key] ?? []).filter(
+                  (p) => p.date !== row.date,
+                ),
+                { date: row.date, value: row.value },
+              ].sort((a, b) => a.date.localeCompare(b.date));
+          }
+          store.evolutionSummary = undefined;
+          store.trendReviewedAt = undefined;
+          learnReportedBaselines(store);
+          advanceLongitudinal(store);
+          saveStore(store);
+          return send(evolutionSchema.parse(evolution(store, days)));
+        }
+      }
+      if (action === "care-tasks" && detail && method === "POST") {
+        const input = z
+          .object({ outcome: z.string().trim().min(1).max(1000) })
+          .strict()
+          .parse(await req.json());
+        const task = store.careTasks.find((t) => t.id === detail);
+        if (!task)
+          throw new ApiError(
+            404,
+            "task_not_found",
+            "Care recommendation not found.",
+          );
+        if (task.status !== "open")
+          throw new ApiError(
+            409,
+            "task_completed",
+            "This outcome has already been recorded.",
+          );
+        task.status = "completed";
+        task.completedAt = new Date().toISOString();
+        task.outcome = input.outcome;
+        appendAudit(store, {
+          at: task.completedAt,
+          actorUserId: user.userId,
+          actorRole: "primary_family",
+          action: "care_outcome_recorded",
+          detail: { taskId: task.id },
+        });
+        saveStore(store);
+        return send({ ok: true });
+      }
       if (method === "GET") {
         if (action === "overview") return send(overview(store));
         if (action === "snapshot")
@@ -319,7 +591,30 @@ async function handle(
             "verification_read_only",
             "Phone verification cannot be set manually.",
           );
+        if (
+          !input.contacts[0].channels.includes("email") ||
+          input.contacts[0].subscriptions.critical !== true
+        )
+          throw new ApiError(
+            422,
+            "primary_critical_required",
+            "The primary contact must subscribe to Critical email.",
+          );
         store.subject = { ...store.subject, ...input.subject };
+        if (input.profile) store.profile = input.profile;
+        if (input.monitoring) {
+          if (
+            !store.monitoring.simulatorEnabled &&
+            input.monitoring.simulatorEnabled
+          ) {
+            store.monitoring.dataLoss = false;
+            store.monitoring.lastDataReceivedAt = null;
+            for (const d of store.devices) d.online = true;
+          }
+          store.monitoring.simulatorEnabled = input.monitoring.simulatorEnabled;
+          store.monitoring.emailEnabled = input.monitoring.emailEnabled;
+        }
+        heartbeat(store);
         store.contacts = input.contacts.map((c, i) => ({
           ...c,
           subjectId: id,
@@ -348,6 +643,45 @@ async function handle(
         saveStore(store);
         return send(settings(store));
       }
+    }
+    if (
+      resource === "notifications" &&
+      id &&
+      action === "retry" &&
+      method === "POST"
+    ) {
+      const owner = listPeople()
+        .map((p) => getStore(p.id))
+        .find((s) =>
+          s?.alerts.some((a) => a.notifications.some((n) => n.id === id)),
+        );
+      if (!owner)
+        throw new ApiError(
+          404,
+          "notification_not_found",
+          "Notification not found.",
+        );
+      session(req, owner.subject.id);
+      const alert = owner.alerts.find((a) =>
+        a.notifications.some((n) => n.id === id),
+      )!;
+      const record = alert.notifications.find((n) => n.id === id)!;
+      if (
+        record.simulated !== false ||
+        record.deliveryStatus !== "failed" ||
+        alert.status !== "open"
+      )
+        throw new ApiError(
+          409,
+          "retry_unavailable",
+          "Only a failed real email on an open alert can be retried.",
+        );
+      record.deliveryStatus = "pending";
+      record.attempts = 0;
+      record.nextAttemptAt = undefined;
+      record.error = undefined;
+      saveStore(owner);
+      return send({ ok: true }, 202);
     }
     if (resource === "alerts" && id) {
       const store = findStoreByAlertId(id);

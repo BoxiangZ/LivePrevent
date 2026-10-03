@@ -36,7 +36,8 @@ export default function LoginPage() {
         </button>
         <p className="text-xs text-ink-mute">
           This sample workspace uses a local family account and example records.
-          It does not connect to live devices or send external notifications.
+          Devices are simulated. Real email alerts can be enabled for configured
+          care contacts.
         </p>
         {error && <p role="alert">{error}</p>}
       </div>

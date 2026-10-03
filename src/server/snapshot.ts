@@ -4,10 +4,15 @@
  * 倒计时以快照中的 nowMs 为基准计算，避免客户端/服务端时钟偏差。
  */
 
+import { monitoringStatus } from "@/server/monitoring";
+import type {
+  Monitoring,
+  HealthProfile,
+  CareTask,
+} from "@/shared/contracts/monitoring";
 import { recommendedAction } from "@/server/v3/actions";
 import type { DemoStore } from "@/server/store";
 import { freshnessOf } from "@/server/store";
-import { seedCarePatients } from "@/server/data/care";
 import type { Alert, Contact, NotificationRecord } from "@/shared/types/alert";
 import type { AuditLogEntry } from "@/shared/types/audit";
 import type { DataFreshness } from "@/shared/types/device";
@@ -28,8 +33,10 @@ export interface NotificationPreview {
   subject: string | null;
   body: string;
   secureLinkAvailable: boolean;
-  deliveryStatus: "sent" | "delivered" | "failed";
-  simulated: true;
+  deliveryStatus: "pending" | "sent" | "delivered" | "failed";
+  error: string | null;
+  providerMessageId: string | null;
+  simulated: boolean;
 }
 
 export interface SnapshotAlert extends Alert {
@@ -71,10 +78,26 @@ export interface MetricSummary {
 }
 
 export interface DemoStateSnapshot {
+  monitoring: Monitoring;
+  profile: HealthProfile;
+  careTasks: CareTask[];
+  displayStatus:
+    "stable" | "watch" | "important" | "critical" | "unknown" | "paused";
   nowMs: number;
   demoTimeScale: number;
-  people: Array<{ id: string; label: string; alias: string; overallLevel: string; openAlertCount: number }>;
-  dataStatus: { source: "simulated"; synthetic: true; asOf: string; stale: boolean };
+  people: Array<{
+    id: string;
+    label: string;
+    alias: string;
+    overallLevel: string;
+    openAlertCount: number;
+  }>;
+  dataStatus: {
+    source: "simulated";
+    synthetic: true;
+    asOf: string;
+    stale: boolean;
+  };
   subject: {
     id: string;
     /** Full display name */
@@ -135,7 +158,9 @@ const METRIC_META: Record<TrendMetric, { label: string; unit: string }> = {
 };
 
 function overallLevelOf(alerts: Alert[]): RiskLevel {
-  const open = alerts.filter((a) => a.status === "open" || a.status === "acknowledged");
+  const open = alerts.filter(
+    (a) => a.status === "open" || a.status === "acknowledged",
+  );
   if (open.some((a) => a.level === "critical")) return "critical";
   if (open.some((a) => a.level === "important")) return "important";
   if (open.some((a) => a.level === "watch")) return "watch";
@@ -159,7 +184,7 @@ function buildMetricSummaries(store: DemoStore): MetricSummary[] {
     // 30 天长期趋势：最近 7 天均值 vs 最初 7 天均值
     let delta30dPct: number | null = null;
     if (series.length >= 30) {
-      const first7 = mean(series.slice(0, 7).map((p) => p.value));
+      const first7 = mean(series.slice(-30, -23).map((p) => p.value));
       const last7 = mean(series.slice(-7).map((p) => p.value));
       if (first7 > 0) delta30dPct = (last7 - first7) / first7;
     }
@@ -172,7 +197,13 @@ function buildMetricSummaries(store: DemoStore): MetricSummary[] {
       else status = "deviated";
     }
 
-    const interpretation = interpretMetric(b.metric, current, median, deltaPct, delta30dPct);
+    const interpretation = interpretMetric(
+      b.metric,
+      current,
+      median,
+      deltaPct,
+      delta30dPct,
+    );
 
     return {
       metric: b.metric,
@@ -201,14 +232,15 @@ function interpretMetric(
   current: number | null,
   median: number | null,
   deltaPct: number | null,
-  delta30dPct: number | null
+  delta30dPct: number | null,
 ): string {
   if (current === null || median === null || deltaPct === null) {
     return "Not enough data yet.";
   }
   const pct = Math.round(Math.abs(deltaPct) * 100);
   const dir = deltaPct < 0 ? "below" : "above";
-  const longPct = delta30dPct !== null ? Math.round(Math.abs(delta30dPct) * 100) : null;
+  const longPct =
+    delta30dPct !== null ? Math.round(Math.abs(delta30dPct) * 100) : null;
   const longDir = delta30dPct !== null && delta30dPct < 0 ? "down" : "up";
 
   switch (metric) {
@@ -216,13 +248,17 @@ function interpretMetric(
       if (Math.abs(deltaPct) < 0.1)
         return `Daily activity is close to the usual ${fmt(median, metric)} steps.`;
       return `Activity is ${pct}% ${dir} the personal baseline today${
-        longPct !== null ? `, and trending ${longDir} ${longPct}% over 30 days` : ""
+        longPct !== null
+          ? `, and trending ${longDir} ${longPct}% over 30 days`
+          : ""
       }.`;
     case "sleep":
       if (Math.abs(deltaPct) < 0.08)
         return `Sleep is near the usual ${fmt(median, metric)} hours.`;
       return `Sleep is ${pct}% ${dir} the personal baseline${
-        longPct !== null ? `, with a ${longPct}% ${longDir}ward drift over 30 days` : ""
+        longPct !== null
+          ? `, with a ${longPct}% ${longDir}ward drift over 30 days`
+          : ""
       }.`;
     case "mobility":
       if (Math.abs(deltaPct) < 0.08)
@@ -237,8 +273,12 @@ function interpretMetric(
   }
 }
 
-export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapshot {
-  const contactName = (id: string) => store.contacts.find((c) => c.id === id)?.name ?? id;
+export function buildSnapshot(
+  store: DemoStore,
+  nowMs: number,
+): DemoStateSnapshot {
+  const contactName = (id: string) =>
+    store.contacts.find((c) => c.id === id)?.name ?? id;
 
   const notifications: NotificationPreview[] = store.alerts.flatMap((a) =>
     a.notifications.map((n: NotificationRecord) => {
@@ -251,65 +291,57 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
         channel: n.channel,
         sentAt: n.sentAt,
         subject: body?.subject ?? null,
-        body: body?.rawToken ? (body.body ?? "").replaceAll(body.rawToken, "[secure link available in preview]") : body?.body ?? "",
+        body: body?.rawToken
+          ? (body.body ?? "").replaceAll(
+              body.rawToken,
+              "[secure link available in preview]",
+            )
+          : (body?.body ?? ""),
         secureLinkAvailable: Boolean(body?.rawToken),
         deliveryStatus: n.deliveryStatus,
-        simulated: true,
+        simulated: n.simulated !== false,
+        error: n.error ?? null,
+        providerMessageId: n.providerMessageId ?? null,
       };
-    })
+    }),
   );
 
   const activeCritical = store.alerts.find(
-    (a) => a.level === "critical" && (a.status === "open" || a.status === "acknowledged")
+    (a) =>
+      a.level === "critical" &&
+      (a.status === "open" || a.status === "acknowledged"),
   );
   const pendingFall = store.events.find((e) => e.fallPhase === "candidate");
 
   const nowIso = new Date(nowMs).toISOString();
   const overall = overallLevelOf(store.alerts);
 
-  // The live preview row reflects the selected person's state.
-  const carePatients = seedCarePatients(store.user.createdAt).map((p) =>
-    p.live
-      ? {
-          ...p,
-          name: store.subject.displayName ?? store.subject.alias,
-          age: store.subject.age ?? p.age,
-          level: overall,
-          reason:
-            overall === "stable"
-              ? "Activity within normal range"
-              : (activeCritical
-                  ? "Possible fall — immediate attention needed"
-                  : store.alerts.find(
-                      (a) =>
-                        (a.status === "open" || a.status === "acknowledged") &&
-                        (a.level === "important" || a.level === "watch")
-                    )?.eventType === "prolonged_inactivity"
-                    ? "Abnormal inactivity — 2h 47m (3.1× baseline)"
-                    : "Deviation from personal baseline"),
-          statusLabel:
-            overall === "critical"
-              ? "Needs immediate attention"
-              : overall === "important"
-                ? "Needs review today"
-                : overall === "watch"
-                  ? "Monitoring"
-                  : "Stable",
-          lastUpdatedIso: store.devices.map(d => d.lastSyncAt).filter((v): v is string => !!v).sort().at(-1) ?? store.user.createdAt,
-        }
-      : p
-  );
-  // 排序：critical > important > watch > stable，同级按名字
-  const levelRank: Record<RiskLevel, number> = { critical: 0, important: 1, watch: 2, stable: 3 };
-  carePatients.sort((a, b) => levelRank[a.level] - levelRank[b.level] || a.name.localeCompare(b.name));
+  const carePatients: CarePatientRow[] = [];
 
   return {
+    monitoring: store.monitoring,
+    profile: store.profile,
+    careTasks: store.careTasks,
+    displayStatus: monitoringStatus(store, nowMs).status,
     nowMs,
     demoTimeScale: Number(process.env.NEXT_PUBLIC_DEMO_TIME_SCALE ?? 18),
     people: [],
-    dataStatus: { source: "simulated", synthetic: true,
-      asOf: store.devices.map((d) => d.lastSyncAt).filter((v): v is string => !!v).sort().at(-1) ?? nowIso,
-      stale: store.devices.some((d) => !d.online || !d.lastSyncAt || nowMs - Date.parse(d.lastSyncAt) > 15 * 60_000) },
+    dataStatus: {
+      source: "simulated",
+      synthetic: true,
+      asOf:
+        store.devices
+          .map((d) => d.lastSyncAt)
+          .filter((v): v is string => !!v)
+          .sort()
+          .at(-1) ?? nowIso,
+      stale: store.devices.some(
+        (d) =>
+          !d.online ||
+          !d.lastSyncAt ||
+          nowMs - Date.parse(d.lastSyncAt) >= 15 * 60_000,
+      ),
+    },
     subject: {
       id: store.subject.id,
       name: store.subject.displayName ?? store.subject.alias,
@@ -318,7 +350,24 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
       timeZone: store.subject.timeZone,
       monitoringPaused: store.subject.monitoringPaused,
     },
-    learningProgress: store.baselines.some(b => !b.learned) ? { currentDay: Math.max(0, Math.floor((nowMs - Date.parse(store.baselines.find(b => !b.learned)!.learningSince)) / 86400000)), totalDays: store.baselines.find(b => !b.learned)!.metric === "sleep" ? 28 : 14 } : null,
+    learningProgress: store.baselines.some((b) => !b.learned)
+      ? {
+          currentDay: Math.max(
+            0,
+            Math.floor(
+              (nowMs -
+                Date.parse(
+                  store.baselines.find((b) => !b.learned)!.learningSince,
+                )) /
+                86400000,
+            ),
+          ),
+          totalDays:
+            store.baselines.find((b) => !b.learned)!.metric === "sleep"
+              ? 28
+              : 14,
+        }
+      : null,
     overallLevel: overall,
     devices: freshnessOf(store),
     deviceDetails: store.devices.map((d) => ({
@@ -342,13 +391,23 @@ export function buildSnapshot(store: DemoStore, nowMs: number): DemoStateSnapsho
     })),
     trends: store.trends,
     metricSummaries: buildMetricSummaries(store),
-    events: [...store.events].sort((x, y) => y.occurredAt.localeCompare(x.occurredAt)),
+    events: [...store.events].sort((x, y) =>
+      y.occurredAt.localeCompare(x.occurredAt),
+    ),
     deviations: store.deviations,
     alerts: [...store.alerts]
       .sort((x, y) => y.createdAt.localeCompare(x.createdAt))
-      .map((a) => ({ ...a, eventLabel: EVENT_LABEL[a.eventType] ?? a.eventType, recommendedAction: recommendedAction(a.eventType) })),
-    contacts: [...store.contacts].sort((x, y) => x.escalationOrder - y.escalationOrder),
-    notifications: notifications.sort((x, y) => y.sentAt.localeCompare(x.sentAt)),
+      .map((a) => ({
+        ...a,
+        eventLabel: EVENT_LABEL[a.eventType] ?? a.eventType,
+        recommendedAction: recommendedAction(a.eventType, a.level),
+      })),
+    contacts: [...store.contacts].sort(
+      (x, y) => x.escalationOrder - y.escalationOrder,
+    ),
+    notifications: notifications.sort((x, y) =>
+      y.sentAt.localeCompare(x.sentAt),
+    ),
     auditLog: [...store.auditLog].sort((x, y) => y.at.localeCompare(x.at)),
     subscription: store.subscription,
     kimiSummaries: store.kimiSummaries,

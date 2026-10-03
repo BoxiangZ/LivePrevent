@@ -50,6 +50,7 @@ export interface JevOutput {
 
 /** 结构化事实 — Kimi 摘要的唯一输入。数值必须可追溯 — PRD §10.2 */
 export interface StructuredFacts {
+  healthContext?: unknown;
   observations?: import("@/shared/contracts/assessment").Observation[];
   assessmentFindings?: Array<{
     category: string;
@@ -66,7 +67,11 @@ export interface StructuredFacts {
   timeZone: string;
   signals: Array<{ source: string; description: string }>;
   /** 与基线对比（相对值，不含绝对健康数值） */
-  deviations: Array<{ metric: string; relativeChange: number; direction: string }>;
+  deviations: Array<{
+    metric: string;
+    relativeChange: number;
+    direction: string;
+  }>;
   /** 相关历史变化（过去 30 天相关趋势摘要） */
   relatedChanges: string[];
   trendSynthetic: boolean; // 合成数据标记 — Demo 必须标注

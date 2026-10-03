@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { get, put } from "./repository";
+import { USER_ALEX_ID } from "@/server/data/seed";
 import { getStore, listPeople } from "@/server/store";
 export type Session = {
   userId: string;
@@ -18,9 +19,9 @@ export class ApiError extends Error {
 export function newSession() {
   const token = randomBytes(32).toString("hex");
   const people = listPeople();
-  const store = getStore(people[0].id)!;
+  const store = people.length ? getStore(people[0].id) : null;
   const session: Session = {
-    userId: store.user.id,
+    userId: store?.user.id ?? USER_ALEX_ID,
     personIds: people
       .filter((p) => getStore(p.id)?.user.rolesBySubject[p.id])
       .map((p) => p.id),
@@ -43,6 +44,13 @@ export function session(req: Request, personId?: string) {
       "sign_in_required",
       "Please open the workspace to continue.",
     );
+  value.personIds = listPeople()
+    .filter(
+      (p) =>
+        getStore(p.id)?.user.id === value.userId &&
+        getStore(p.id)?.user.rolesBySubject[p.id],
+    )
+    .map((p) => p.id);
   if (personId && !value.personIds.includes(personId))
     throw new ApiError(
       403,

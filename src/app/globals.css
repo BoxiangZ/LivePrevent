@@ -3,10 +3,47 @@
 @tailwind utilities;
 
 @layer components {
-  .panel { @apply rounded-2xl border border-surface-line bg-white p-6 shadow-card; }
-  .field { @apply mt-1 block w-full rounded-lg border border-surface-line bg-white px-3 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand-500; }
-  .btn-primary { @apply inline-flex items-center justify-center rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50; }
-  .btn-secondary { @apply inline-flex items-center justify-center rounded-lg border border-surface-line bg-white px-4 py-2 text-sm font-medium text-ink hover:bg-surface-soft disabled:opacity-50; }
-  .eyebrow { @apply text-xs font-semibold uppercase tracking-widest text-ink-mute; }
+  .panel {
+    @apply rounded-2xl border border-surface-line bg-white p-6 shadow-card;
+  }
+  .field {
+    @apply mt-1 block w-full rounded-lg border border-surface-line bg-white px-3 py-2.5 text-sm text-ink focus:outline-none focus:ring-2 focus:ring-brand-500;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-surface-line bg-white px-4 py-2 text-sm font-medium text-ink hover:bg-surface-soft disabled:opacity-50;
+  }
+  .eyebrow {
+    @apply text-xs font-semibold uppercase tracking-widest text-ink-mute;
+  }
 }
-button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid #236b85; outline-offset: 3px; }
+button:focus-visible,
+a:focus-visible,
+summary:focus-visible {
+  outline: 2px solid #236b85;
+  outline-offset: 3px;
+}
+
+@keyframes status-breath {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 currentColor;
+    transform: scale(0.94);
+    opacity: 0.75;
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgb(148 163 184 / 0.12);
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.status-breath {
+  animation: status-breath 2.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-breath {
+    animation: none;
+  }
+}

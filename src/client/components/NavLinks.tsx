@@ -18,6 +18,7 @@ export function NavLinks() {
     { id: "overview", href: "/overview", label: "Overview" },
     { id: "alerts", href: "/alerts", label: "Alerts" },
     { id: "assessments", href: "/assessments", label: "Assessments" },
+    { id: "people", href: "/people", label: "People" },
     { id: "settings", href: "/settings", label: "Settings" },
   ];
 

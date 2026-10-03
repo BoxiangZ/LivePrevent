@@ -1,3 +1,4 @@
+import { monitoringStatus } from "@/server/monitoring";
 import { limits } from "./media";
 import { createHash } from "node:crypto";
 import type { DemoStore } from "@/server/store";
@@ -19,8 +20,8 @@ export function overview(s: DemoStore) {
             ? "Not worn"
             : "Recently synced",
   }));
-  const verifiable =
-    devices.length > 0 && devices.every((d) => d.reason === "Recently synced");
+  const state = monitoringStatus(s);
+  const verifiable = state.verifiable;
   const active = [...snapshot.alerts]
     .filter((a) => ["open", "acknowledged"].includes(a.status))
     .sort(
@@ -28,27 +29,18 @@ export function overview(s: DemoStore) {
         ({ critical: 0, important: 1, watch: 2, stable: 3 })[a.level] -
         { critical: 0, important: 1, watch: 2, stable: 3 }[b.level],
     );
-  const displayStatus =
-    active[0]?.level === "critical"
-      ? "critical"
-      : s.subject.monitoringPaused
-        ? "paused"
-        : !verifiable
-          ? "unknown"
-          : snapshot.overallLevel;
+  const displayStatus = state.status;
   const statusReason =
     displayStatus === "paused"
       ? "Monitoring is paused. Current condition cannot be verified."
       : displayStatus === "unknown"
-        ? "Current condition cannot be verified from the available device data."
+        ? state.minutesWithoutData === null
+          ? "No monitoring data has been received."
+          : `No monitoring data received for ${state.minutesWithoutData} minutes. Current condition cannot be verified.`
         : active[0]
-          ? recommendedAction(active[0].eventType)
+          ? recommendedAction(active[0].eventType, active[0].level)
           : "No active concern is recorded in the available observations.";
-  const evaluatedAt =
-    devices
-      .map((d) => d.lastSyncAt)
-      .filter((v): v is string => !!v)
-      .sort()[0] ?? null;
+  const evaluatedAt = state.lastDataReceivedAt;
   const b = s.baselines.find((b) => !b.learned);
   return overviewSchema.parse({
     personId: s.subject.id,
@@ -60,7 +52,7 @@ export function overview(s: DemoStore) {
       ? {
           label: "Review alert",
           href: `/events/${active[0].eventId}`,
-          description: recommendedAction(active[0].eventType),
+          description: recommendedAction(active[0].eventType, active[0].level),
         }
       : !verifiable || s.subject.monitoringPaused
         ? {
@@ -76,7 +68,10 @@ export function overview(s: DemoStore) {
               "No urgent action is needed based on the available observations.",
           },
     dataFreshness: { verifiable, devices },
-    sourceLabel: "Based on sample information",
+    sourceLabel: s.monitoring.simulatorEnabled
+      ? "Simulated monitoring heartbeat · sample inputs"
+      : "Monitoring heartbeat simulator disabled",
+    monitoring: s.monitoring,
     learningProgress: b
       ? {
           currentDay: Math.max(
@@ -91,6 +86,8 @@ export function overview(s: DemoStore) {
 export function settings(s: DemoStore) {
   const data = {
     personId: s.subject.id,
+    profile: s.profile,
+    monitoring: s.monitoring,
     subject: {
       alias: s.subject.alias,
       displayName: s.subject.displayName ?? s.subject.alias,
@@ -116,7 +113,15 @@ export function settings(s: DemoStore) {
   return settingsSchema.parse({
     ...data,
     version: createHash("sha256")
-      .update(JSON.stringify(data))
+      .update(
+        JSON.stringify({
+          ...data,
+          monitoring: {
+            simulatorEnabled: s.monitoring.simulatorEnabled,
+            emailEnabled: s.monitoring.emailEnabled,
+          },
+        }),
+      )
       .digest("hex")
       .slice(0, 16),
   });

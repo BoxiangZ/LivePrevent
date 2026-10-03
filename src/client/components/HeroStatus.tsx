@@ -19,16 +19,36 @@ const LEVEL_BG: Record<RiskLevel, string> = {
   critical: "from-red-600 to-rose-700 border-red-700",
 };
 
-const LEVEL_TEXT: Record<RiskLevel, { title: string; sub: string; dark: boolean }> = {
-  stable: { title: "is stable", sub: "No urgent intervention required.", dark: false },
-  watch: { title: "is being watched", sub: "A small change from the usual pattern — monitoring.", dark: false },
-  important: { title: "needs attention", sub: "A meaningful deviation from the personal baseline. Review recommended.", dark: false },
-  critical: { title: "may need help now", sub: "Immediate attention recommended.", dark: true },
+const LEVEL_TEXT: Record<
+  RiskLevel,
+  { title: string; sub: string; dark: boolean }
+> = {
+  stable: {
+    title: "is stable",
+    sub: "No urgent intervention required.",
+    dark: false,
+  },
+  watch: {
+    title: "is being watched",
+    sub: "A small change from the usual pattern — monitoring.",
+    dark: false,
+  },
+  important: {
+    title: "needs attention",
+    sub: "A meaningful deviation from the personal baseline. Review recommended.",
+    dark: false,
+  },
+  critical: {
+    title: "may need help now",
+    sub: "Immediate attention recommended.",
+    dark: true,
+  },
 };
 
 export function HeroStatus() {
   const { snapshot, msUntil } = useDemo();
-  if (!snapshot) return <div className="h-32 animate-pulse rounded-2xl bg-surface-soft" />;
+  if (!snapshot)
+    return <div className="h-32 animate-pulse rounded-2xl bg-surface-soft" />;
 
   const level = snapshot.overallLevel;
   const meta = LEVEL_TEXT[level];
@@ -39,25 +59,48 @@ export function HeroStatus() {
   const criticalEvent = criticalAlert
     ? snapshot.events.find((e) => e.id === criticalAlert.eventId)
     : null;
-  const nextMs = criticalAlert ? msUntil(criticalAlert.escalation.nextStageAt) : null;
+  const nextMs = criticalAlert
+    ? msUntil(criticalAlert.escalation.nextStageAt)
+    : null;
 
   return (
     <div
       className={cn(
         "relative overflow-hidden rounded-2xl border bg-gradient-to-br px-6 py-6 shadow-card sm:px-8",
         LEVEL_BG[level],
-        meta.dark && "text-white"
+        meta.dark && "text-white",
       )}
     >
       <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
         <div className="min-w-0 flex-1">
-          <div className={cn("text-[11px] font-semibold uppercase tracking-[0.14em]", meta.dark ? "text-white/70" : "text-ink-mute")}>
+          <div
+            className={cn(
+              "text-[11px] font-semibold uppercase tracking-[0.14em]",
+              meta.dark ? "text-white/70" : "text-ink-mute",
+            )}
+          >
             Current status · Simulated data
           </div>
-          <h1 className={cn("mt-1.5 text-3xl font-semibold tracking-tight sm:text-4xl", meta.dark ? "text-white" : "text-ink")}>
-            {level === "stable" ? "Stable" : level === "watch" ? "Watch" : level === "important" ? "Needs attention" : "May need help now"}
+          <h1
+            className={cn(
+              "mt-1.5 text-3xl font-semibold tracking-tight sm:text-4xl",
+              meta.dark ? "text-white" : "text-ink",
+            )}
+          >
+            {level === "stable"
+              ? "Stable"
+              : level === "watch"
+                ? "Low risk"
+                : level === "important"
+                  ? "Moderate risk"
+                  : "May need help now"}
           </h1>
-          <p className={cn("mt-1.5 text-sm sm:text-base", meta.dark ? "text-white/85" : "text-ink-soft")}>
+          <p
+            className={cn(
+              "mt-1.5 text-sm sm:text-base",
+              meta.dark ? "text-white/85" : "text-ink-soft",
+            )}
+          >
             {meta.sub}
           </p>
 
@@ -67,11 +110,13 @@ export function HeroStatus() {
                 Possible fall detected
                 {criticalAlert.levelHistory.length > 1 && " · unrecovered"}
               </span>
-              {nextMs !== null && nextMs > 0 && criticalAlert.status === "open" && (
-                <span className="text-white/85">
-                  Next escalation in <Countdown ms={nextMs} />
-                </span>
-              )}
+              {nextMs !== null &&
+                nextMs > 0 &&
+                criticalAlert.status === "open" && (
+                  <span className="text-white/85">
+                    Next escalation in <Countdown ms={nextMs} />
+                  </span>
+                )}
               {criticalAlert.status === "acknowledged" && (
                 <span className="rounded-full bg-white/20 px-2.5 py-0.5 text-xs font-semibold">
                   Acknowledged
@@ -106,13 +151,21 @@ function StatusRing({ level }: { level: RiskLevel }) {
   };
   const label: Record<RiskLevel, string> = {
     stable: "Stable",
-    watch: "Watch",
-    important: "Important",
+    watch: "Low risk",
+    important: "Moderate risk",
     critical: "Critical",
   };
   return (
-    <div className={cn("flex h-24 w-24 flex-col items-center justify-center rounded-full border-[5px] bg-white/60 backdrop-blur-sm", ring[level], level === "critical" && "animate-pulse bg-white/10")}>
-      <span className="text-[10px] font-semibold uppercase tracking-widest opacity-70">Risk</span>
+    <div
+      className={cn(
+        "flex h-24 w-24 flex-col items-center justify-center rounded-full border-[5px] bg-white/60 backdrop-blur-sm",
+        ring[level],
+        level === "critical" && "animate-pulse bg-white/10",
+      )}
+    >
+      <span className="text-[10px] font-semibold uppercase tracking-widest opacity-70">
+        Risk
+      </span>
       <span className="text-base font-bold leading-tight">{label[level]}</span>
     </div>
   );

@@ -91,7 +91,10 @@ export function queueAssessment(id: string, retry = false) {
   if (["queued", "analyzing"].includes(a.status)) return a;
   if (
     retry
-      ? !["failed", "partial", "cancelled"].includes(a.status)
+      ? !(
+          a.retryable &&
+          ["failed", "partial", "cancelled", "completed"].includes(a.status)
+        )
       : a.status !== "created"
   )
     throw new ApiError(
@@ -772,15 +775,41 @@ export async function runAssessment(id: string) {
     if (!currentStore) throw new Error("Person was removed during analysis.");
     currentStore.kimiSummaries[event.id] = { ...summary, eventId: event.id };
     saveStore(currentStore);
-    const partial = Boolean(videoError) || summary.source !== "llm";
+    // A readable, auditable rule assessment is complete even when an optional
+    // visual review or AI-written explanation is unavailable.  Limitations are
+    // shown separately instead of making families think their data was lost.
+    // An optional wording model does not determine whether the assessment is
+    // complete. If it fails after its bounded retry, the same verified facts
+    // are rendered deterministically and only the technical details record it.
+    const hasLimitations = Boolean(videoError);
+    const summaryModelAttempted = !["not_configured", "offline_demo"].includes(
+      summary.diagnostic?.code ?? "",
+    );
+    const sourceBreakdown = [
+      ...(a.input.observations.length ? ["Manually added observations"] : []),
+      ...(a.input.sensorAssetIds.length
+        ? ["Uploaded CSV or JSON observations"]
+        : []),
+      ...(video
+        ? [
+            a.input.videoObservedAt
+              ? "Analyzed uploaded video with confirmed recording time"
+              : "Reviewed uploaded video; recording time unconfirmed",
+          ]
+        : a.input.videoAssetId
+          ? ["Attached video; visual analysis unavailable"]
+          : []),
+    ];
     a = {
       ...current,
-      status: partial ? "partial" : "completed",
-      stage: partial ? "Review available results" : "Analysis complete",
+      status: "completed",
+      stage: hasLimitations
+        ? "Analysis complete with limitations"
+        : "Analysis complete",
       updatedAt: new Date().toISOString(),
       completedAt: new Date().toISOString(),
       error: videoError,
-      retryable: partial,
+      retryable: Boolean(videoError),
       finding: {
         ...decision,
         plainSummary:
@@ -792,31 +821,17 @@ export async function runAssessment(id: string) {
         alertReason: alert ? (alertFinding?.summary ?? null) : null,
         observations,
         video,
-        sourceBreakdown: [
-          "Submitted sample observations",
-          ...(video
-            ? [
-                a.input.videoObservedAt
-                  ? "Analyzed sample video with confirmed recording time"
-                  : "Reviewed sample video; recording time unconfirmed",
-              ]
-            : a.input.videoAssetId
-              ? ["Attached sample video; analysis unavailable"]
-              : []),
-        ],
+        sourceBreakdown,
         model: {
           provider: "kimi",
           modelId: video
             ? visualModel()
-            : summary.source === "llm" || !!reportedSummary
+            : summaryModelAttempted || !!reportedSummary
               ? (process.env.KIMI_MODEL ?? "moonshot-v1-8k")
               : null,
-          used: !!video || summary.source === "llm" || !!reportedSummary,
-          fallbackReason:
-            videoError ??
-            (summary.source !== "llm"
-              ? "Text summary unavailable; showing a rule-based explanation."
-              : null),
+          used: !!video || summaryModelAttempted || !!reportedSummary,
+          fallbackReason: videoError,
+          summaryDiagnostic: summary.diagnostic,
         },
         decision: {
           engine: "observation_rules",

@@ -50,6 +50,8 @@ Settings includes sex, height, weight, a local profile photo, living situation, 
 
 The versioned sample longitudinal policy checks sustained deviations in multiple health areas across three weeks, creates a Moderate alert and a check-in recommendation, deduplicates repeated concerns and saves care outcomes. It is an auditable sample policy, not a clinically validated predictor. The 30/90-day explanation uses permitted profile context, baselines, history and previous outcomes, with a visible rule fallback when Kimi is unavailable.
 
+Assessments remain complete when the optional AI explanation is unavailable: the confirmed observations and rule findings remain readable, with the explanation diagnostic recorded separately. The explanation receives at most one automatic retry. Unavailable video analysis produces a completed result with limitations and can be retried; successful completed assessments cannot be retried. Risk decisions and notifications are saved before waiting for the explanation, and concurrent acknowledgements, email delivery results and profile edits are preserved.
+
 ## Verification
 
 ```sh
@@ -65,3 +67,5 @@ npm run test:monitoring-api
 Use a fresh isolated directory for API tests: they create/remove people and alter sample settings, alerts and history. Model and email adapter tests use local fetch stubs and never send real email. SQLite/jobs/uploads require one persistent Node process.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [API_CONTRACTS.md](docs/API_CONTRACTS.md) and [MONITORING_ITERATION.md](docs/MONITORING_ITERATION.md).
+
+The branch audit, merge resolutions and validation results are recorded in [the 2026-10-04 integration report](docs/INTEGRATION_2026-10-04.md).

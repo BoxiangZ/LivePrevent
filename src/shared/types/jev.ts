@@ -90,4 +90,21 @@ export interface KimiSummary {
   validationPassed: boolean;
   /** 生成来源：llm | template_fallback — PRD §10.3 */
   source: "llm" | "template_fallback";
+  /**
+   * A redacted, persisted explanation of the text-generation path.  This
+   * deliberately contains no prompt, response body, upload name, or key.
+   */
+  diagnostic?: {
+    code:
+      | "generated"
+      | "not_configured"
+      | "offline_demo"
+      | "provider_error"
+      | "empty_response"
+      | "invalid_json"
+      | "invalid_shape"
+      | "validation_failed"
+      | "request_failed";
+    message: string;
+  };
 }

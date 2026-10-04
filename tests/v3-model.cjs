@@ -38,9 +38,14 @@ const assessments = require("../src/server/v3/assessments.ts");
 const store = require("../src/server/store.ts");
 const now = new Date().toISOString();
 let invalidTimestamp = false,
+  oversizedLimitations = false,
+  malformedVideoOutput = false,
+  explanationFailuresRemaining = 0,
   videoCalls = 0,
+  repairCalls = 0,
   noteCalls = 0,
-  textCalls = 0;
+  textCalls = 0,
+  duringSummary = null;
 global.fetch = async (url, options) => {
   assert.equal(url, "https://provider.test/v1/chat/completions");
   const body = JSON.parse(options.body);
@@ -51,23 +56,44 @@ global.fetch = async (url, options) => {
   assert.equal(body.max_tokens, undefined, "K3 uses max_completion_tokens");
   const content = body.messages[1].content;
   let result;
-  if (Array.isArray(content)) {
-    videoCalls++;
-    assert.match(content[0].video_url.url, /^data:video\/mp4;base64,/);
-    assert(content[1].text.includes("last-observation"));
+  if (
+    body.messages[0].content.includes("repair untrusted video-analysis output")
+  ) {
+    repairCalls++;
     result = {
       summary: "Possible fall posture in the clip.",
       uncertain: false,
       limitations: ["Sample clip only"],
       evidence: [
         {
-          atSeconds: invalidTimestamp ? 121 : 1,
+          atSeconds: 1,
           description: "Person near the floor",
           kind: "fall_posture",
           confidence: "high",
         },
       ],
     };
+  } else if (Array.isArray(content)) {
+    videoCalls++;
+    assert.match(content[0].video_url.url, /^data:video\/mp4;base64,/);
+    assert(content[1].text.includes("last-observation"));
+    result = malformedVideoOutput
+      ? { summary: "Incomplete response" }
+      : {
+          summary: "Possible fall posture in the clip.",
+          uncertain: false,
+          limitations: oversizedLimitations
+            ? ["A".repeat(400)]
+            : ["Sample clip only"],
+          evidence: [
+            {
+              atSeconds: invalidTimestamp ? 121 : 1,
+              description: "Person near the floor",
+              kind: "fall_posture",
+              confidence: "high",
+            },
+          ],
+        };
   } else if (body.messages[0].content.includes("home care report reader")) {
     noteCalls++;
     result = {
@@ -75,6 +101,14 @@ global.fetch = async (url, options) => {
     };
   } else {
     textCalls++;
+    if (duringSummary) await duringSummary();
+    if (explanationFailuresRemaining > 0) {
+      explanationFailuresRemaining--;
+      return new Response(JSON.stringify({ error: "temporary" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     const facts = JSON.parse(content);
     assert.equal(facts.observations.length, 12);
     result = {
@@ -163,6 +197,61 @@ function fixture(seconds) {
         "The user reports sample context that needs confirmation.",
     ),
   );
+  oversizedLimitations = true;
+  const verbose = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-verbose-limitations" },
+    "test-user",
+  );
+  assessments.queueAssessment(verbose.assessmentId);
+  await assessments.runAssessment(verbose.assessmentId);
+  const normalized = assessments.getAssessment(verbose.assessmentId);
+  assert.equal(normalized.finding.video.evidence[0].atSeconds, 1);
+  assert(normalized.finding.video.limitations[0].length <= 280);
+  oversizedLimitations = false;
+  malformedVideoOutput = true;
+  const repaired = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-format-repair" },
+    "test-user",
+  );
+  assessments.queueAssessment(repaired.assessmentId);
+  await assessments.runAssessment(repaired.assessmentId);
+  assert.equal(
+    assessments.getAssessment(repaired.assessmentId).finding.video.evidence[0]
+      .atSeconds,
+    1,
+  );
+  malformedVideoOutput = false;
+  explanationFailuresRemaining = 1;
+  const retriedExplanation = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-explanation-retry" },
+    "test-user",
+  );
+  assessments.queueAssessment(retriedExplanation.assessmentId);
+  await assessments.runAssessment(retriedExplanation.assessmentId);
+  const retried = assessments.getAssessment(retriedExplanation.assessmentId);
+  assert.equal(retried.stage, "Analysis complete");
+  assert.equal(retried.finding.model.summaryDiagnostic.code, "generated");
+  assert.equal(retried.finding.model.fallbackReason, null);
+  explanationFailuresRemaining = 2;
+  const fallbackExplanation = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-explanation-fallback" },
+    "test-user",
+  );
+  assessments.queueAssessment(fallbackExplanation.assessmentId);
+  await assessments.runAssessment(fallbackExplanation.assessmentId);
+  const fallback = assessments.getAssessment(fallbackExplanation.assessmentId);
+  assert.equal(fallback.stage, "Analysis complete");
+  assert.equal(fallback.retryable, false);
+  assert.equal(fallback.finding.model.summaryDiagnostic.code, "provider_error");
+  assert.equal(fallback.finding.model.fallbackReason, null);
+  assert.throws(
+    () => assessments.queueAssessment(fallbackExplanation.assessmentId, true),
+    /cannot be started/,
+  );
+  assert.match(
+    fallback.finding.plainSummary,
+    /possible impact or fall posture/i,
+  );
   invalidTimestamp = true;
   const b = assessments.createAssessment(
     { ...input, idempotencyKey: "model-test-invalid" },
@@ -170,11 +259,68 @@ function fixture(seconds) {
   );
   assessments.queueAssessment(b.assessmentId);
   await assessments.runAssessment(b.assessmentId);
-  const partial = assessments.getAssessment(b.assessmentId);
-  assert.equal(partial.status, "partial");
-  assert.equal(partial.finding.video, null);
-  assert.equal(partial.finding.level, null);
-  assert.match(partial.error, /timestamps/);
+  const limited = assessments.getAssessment(b.assessmentId);
+  assert.equal(limited.status, "completed");
+  assert.equal(limited.retryable, true);
+  assert.equal(limited.finding.video, null);
+  assert.equal(limited.finding.level, null);
+  assert.match(limited.error, /timestamps/);
+  invalidTimestamp = false;
+  const beforeRetry = store.getStore(person);
+  beforeRetry.monitoring.emailEnabled = true;
+  beforeRetry.contacts.forEach((contact) => {
+    contact.quietHours = null;
+    contact.subscriptions.moderate = true;
+  });
+  store.saveStore(beforeRetry);
+  let notificationId;
+  duringSummary = () => {
+    const concurrent = store.getStore(person);
+    const alert = concurrent.alerts.find(
+      (item) => item.eventId === limited.finding.eventId,
+    );
+    assert(alert, "risk and alert must be persisted before the AI summary");
+    const email = alert.notifications.find(
+      (item) => item.channel === "email" && item.simulated === false,
+    );
+    assert(email, "real email must be queued before the AI summary");
+    assert.equal(email.deliveryStatus, "pending");
+    notificationId = email.id;
+    email.deliveryStatus = "sent";
+    email.providerMessageId = "concurrent-email-test";
+    alert.status = "acknowledged";
+    alert.acknowledgedBy = concurrent.contacts[0].id;
+    alert.acknowledgedAt = now;
+    concurrent.profile.notes = "Updated while the summary was in flight";
+    store.saveStore(concurrent);
+  };
+  assessments.queueAssessment(b.assessmentId, true);
+  await assessments.runAssessment(b.assessmentId);
+  duringSummary = null;
+  const recovered = assessments.getAssessment(b.assessmentId);
+  assert.equal(recovered.status, "completed");
+  assert.equal(recovered.retryable, false);
+  assert.equal(recovered.finding.eventId, limited.finding.eventId);
+  assert.equal(recovered.finding.video.evidence[0].atSeconds, 1);
+  const afterSummary = store.getStore(person);
+  assert.equal(
+    afterSummary.events.filter((event) => event.dedupeKey === b.assessmentId)
+      .length,
+    1,
+  );
+  const preservedAlert = afterSummary.alerts.find(
+    (alert) => alert.id === recovered.finding.alertId,
+  );
+  assert.equal(preservedAlert.status, "acknowledged");
+  assert.equal(
+    preservedAlert.notifications.find((item) => item.id === notificationId)
+      .providerMessageId,
+    "concurrent-email-test",
+  );
+  assert.equal(
+    afterSummary.profile.notes,
+    "Updated while the summary was in flight",
+  );
   const unknown = assessments.evaluate(
     input,
     [
@@ -292,11 +438,12 @@ function fixture(seconds) {
   );
   media.deleteMedia(asset.assetId);
   assert.throws(() => media.readMedia(asset.assetId));
-  assert.equal(videoCalls, 2);
-  assert.equal(textCalls, 2);
-  assert.equal(noteCalls, 2);
+  assert.equal(videoCalls, 7);
+  assert.equal(repairCalls, 1);
+  assert.equal(textCalls, 9);
+  assert.equal(noteCalls, 7);
   console.log(
-    "PASS: full sensor input + video payload, model success, timestamp rejection/partial fallback, uncertainty/conflict handling, reset preserves uploaded events, file deletion. Provider was stubbed.",
+    "PASS: K3 video repair, explanation retry/fallback, completed-with-limitations retry without duplicate events, notification queued before AI summary, concurrent acknowledgement/email/profile preservation, uncertainty handling and media deletion. Provider was stubbed.",
   );
 })().catch((error) => {
   console.error(error);

@@ -65,7 +65,12 @@ await request(`/api/v3/people/${personId}/settings`, {
     subject: { ...nextConfig.subject, monitoringPaused: false },
   },
 });
-await request("/api/v3/assessments", { method: "POST", raw: true, body: "{broken", status: 400 });
+await request("/api/v3/assessments", {
+  method: "POST",
+  raw: true,
+  body: "{broken",
+  status: 400,
+});
 const now = new Date().toISOString();
 const input = {
   personId,
@@ -120,11 +125,13 @@ async function finish(id) {
   throw Error("Task did not finish");
 }
 const result = await finish(created.assessmentId);
-assert.equal(result.status, "partial");
+assert.equal(result.status, "completed");
+assert.equal(result.retryable, false);
 assert.equal(result.finding.level, "stable");
 assert.equal(result.input.primaryConcern, "activity_drop");
 assert.equal(result.finding.findings[0].category, "general_check");
 assert.equal(result.finding.model.used, false);
+assert.equal(result.finding.model.fallbackReason, null);
 assert.equal(result.finding.alertId, null);
 const event = (
   await request(`/api/v3/people/${personId}/events/${result.finding.eventId}`)
@@ -179,12 +186,17 @@ await request(`/api/v3/alerts/${aid}/resolve`, {
   method: "POST",
   body: { personId, reason: "other", note: "Test follow-up" },
 });
-await request(`/api/v3/assessments/${fall.assessmentId}/retry`, { method: "POST", status: 202 });
+assert.equal(fallResult.status, "completed");
+assert.equal(fallResult.retryable, false);
+await request(`/api/v3/assessments/${fall.assessmentId}/retry`, {
+  method: "POST",
+  status: 409,
+});
 const retried = await finish(fall.assessmentId);
 assert.equal(retried.finding.eventId, fallResult.finding.eventId);
 assert.equal(retried.finding.alertId, aid);
 const afterRetry = (await request(`/api/v3/people/${personId}/snapshot`)).data;
-assert.equal(afterRetry.alerts.find(a => a.id === aid).status, "resolved");
+assert.equal(afterRetry.alerts.find((a) => a.id === aid).status, "resolved");
 const csv = `kind,value,at,source\nimpact,true,${now},sample_sensor\n`;
 const upload = (
   await request("/api/v3/media/uploads", {

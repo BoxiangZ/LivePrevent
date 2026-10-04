@@ -36,7 +36,11 @@ const assessments = require("../src/server/v3/assessments.ts");
 const store = require("../src/server/store.ts");
 const now = new Date().toISOString();
 let invalidTimestamp = false,
+  oversizedLimitations = false,
+  malformedVideoOutput = false,
+  explanationFailuresRemaining = 0,
   videoCalls = 0,
+  repairCalls = 0,
   noteCalls = 0,
   textCalls = 0;
 global.fetch = async (url, options) => {
@@ -44,14 +48,22 @@ global.fetch = async (url, options) => {
   const body = JSON.parse(options.body);
   const content = body.messages[1].content;
   let result;
-  if (Array.isArray(content)) {
-    videoCalls++;
-    assert.match(content[0].video_url.url, /^data:video\/mp4;base64,/);
-    assert(content[1].text.includes("last-observation"));
+  if (body.messages[0].content.includes("repair untrusted video-analysis output")) {
+    repairCalls++;
     result = {
       summary: "Possible fall posture in the clip.",
       uncertain: false,
       limitations: ["Sample clip only"],
+      evidence: [{ atSeconds: 1, description: "Person near the floor", kind: "fall_posture", confidence: "high" }],
+    };
+  } else if (Array.isArray(content)) {
+    videoCalls++;
+    assert.match(content[0].video_url.url, /^data:video\/mp4;base64,/);
+    assert(content[1].text.includes("last-observation"));
+    result = malformedVideoOutput ? { summary: "Incomplete response" } : {
+      summary: "Possible fall posture in the clip.",
+      uncertain: false,
+      limitations: oversizedLimitations ? ["A".repeat(400)] : ["Sample clip only"],
       evidence: [
         {
           atSeconds: invalidTimestamp ? 121 : 1,
@@ -66,6 +78,13 @@ global.fetch = async (url, options) => {
     result = { summary: "The user reports sample context that needs confirmation." };
   } else {
     textCalls++;
+    if (explanationFailuresRemaining > 0) {
+      explanationFailuresRemaining--;
+      return new Response(JSON.stringify({ error: "temporary" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     const facts = JSON.parse(content);
     assert.equal(facts.observations.length, 12);
     result = {
@@ -149,6 +168,50 @@ function fixture(seconds) {
   assert(done.finding.limitations.includes("Sample clip only"));
   assert(done.finding.findings.some((f) =>
     f.summary === "The user reports sample context that needs confirmation."));
+  oversizedLimitations = true;
+  const verbose = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-verbose-limitations" },
+    "test-user",
+  );
+  assessments.queueAssessment(verbose.assessmentId);
+  await assessments.runAssessment(verbose.assessmentId);
+  const normalized = assessments.getAssessment(verbose.assessmentId);
+  assert.equal(normalized.finding.video.evidence[0].atSeconds, 1);
+  assert(normalized.finding.video.limitations[0].length <= 280);
+  oversizedLimitations = false;
+  malformedVideoOutput = true;
+  const repaired = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-format-repair" },
+    "test-user",
+  );
+  assessments.queueAssessment(repaired.assessmentId);
+  await assessments.runAssessment(repaired.assessmentId);
+  assert.equal(assessments.getAssessment(repaired.assessmentId).finding.video.evidence[0].atSeconds, 1);
+  malformedVideoOutput = false;
+  explanationFailuresRemaining = 1;
+  const retriedExplanation = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-explanation-retry" },
+    "test-user",
+  );
+  assessments.queueAssessment(retriedExplanation.assessmentId);
+  await assessments.runAssessment(retriedExplanation.assessmentId);
+  const retried = assessments.getAssessment(retriedExplanation.assessmentId);
+  assert.equal(retried.stage, "Analysis complete");
+  assert.equal(retried.finding.model.summaryDiagnostic.code, "generated");
+  assert.equal(retried.finding.model.fallbackReason, null);
+  explanationFailuresRemaining = 2;
+  const fallbackExplanation = assessments.createAssessment(
+    { ...input, idempotencyKey: "model-test-explanation-fallback" },
+    "test-user",
+  );
+  assessments.queueAssessment(fallbackExplanation.assessmentId);
+  await assessments.runAssessment(fallbackExplanation.assessmentId);
+  const fallback = assessments.getAssessment(fallbackExplanation.assessmentId);
+  assert.equal(fallback.stage, "Analysis complete");
+  assert.equal(fallback.retryable, false);
+  assert.equal(fallback.finding.model.summaryDiagnostic.code, "provider_error");
+  assert.equal(fallback.finding.model.fallbackReason, null);
+  assert.match(fallback.finding.plainSummary, /possible impact or fall posture/i);
   invalidTimestamp = true;
   const b = assessments.createAssessment(
     { ...input, idempotencyKey: "model-test-invalid" },
@@ -156,11 +219,12 @@ function fixture(seconds) {
   );
   assessments.queueAssessment(b.assessmentId);
   await assessments.runAssessment(b.assessmentId);
-  const partial = assessments.getAssessment(b.assessmentId);
-  assert.equal(partial.status, "partial");
-  assert.equal(partial.finding.video, null);
-  assert.equal(partial.finding.level, null);
-  assert.match(partial.error, /timestamps/);
+  const limited = assessments.getAssessment(b.assessmentId);
+  assert.equal(limited.status, "completed");
+  assert.equal(limited.retryable, true);
+  assert.equal(limited.finding.video, null);
+  assert.equal(limited.finding.level, null);
+  assert.match(limited.error, /timestamps/);
   const unknown = assessments.evaluate(
     input,
     [
@@ -241,11 +305,12 @@ function fixture(seconds) {
   );
   media.deleteMedia(asset.assetId);
   assert.throws(() => media.readMedia(asset.assetId));
-  assert.equal(videoCalls, 2);
-  assert.equal(textCalls, 2);
-  assert.equal(noteCalls, 2);
+  assert.equal(videoCalls, 6);
+  assert.equal(repairCalls, 1);
+  assert.equal(textCalls, 8);
+  assert.equal(noteCalls, 6);
   console.log(
-    "PASS: full sensor input + video payload, model success, timestamp rejection/partial fallback, uncertainty/conflict handling, reset preserves uploaded events, file deletion. Provider was stubbed.",
+    "PASS: video output normalization/repair, automatic explanation retry, timestamp rejection/completed-with-limitations, uncertainty/conflict handling, reset preserves uploaded events, file deletion. Provider was stubbed.",
   );
 })().catch((error) => {
   console.error(error);
